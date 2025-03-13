@@ -47,7 +47,7 @@ if IS_RPI:
 
     # LED Settings
     NUM_LEDS = 3
-    LED_BRIGHTNESS = 10  # Max brightness is 31
+    LED_BRIGHTNESS = 8  # Max brightness is 31
 
     # LED numbers
     POWER_LED = 0
@@ -143,13 +143,15 @@ os.makedirs(PATTERNS_DIR, exist_ok=True)
 
 # Initialize text-to-speech engine
 tts_engine = pyttsx3.init()
-tts_engine.setProperty('rate', 150)
+tts_engine.setProperty('rate', 130)
 
 def speak_text(text):
     """Use text-to-speech to speak the given text"""
     try:
+        time.sleep(0.1)
         tts_engine.say(text)
         tts_engine.runAndWait()
+        time.sleep(0.1)
     except Exception as e:
         print(f"Error with text-to-speech: {e}")
 
@@ -199,7 +201,7 @@ class LEDControlRPI:
                 self.leds.set_pixel(led_num, rgb[0], rgb[1], rgb[2])
                 self.leds.show()
                 self.led_states[led_num] = rgb
-                print(f"LED {led_num} set to RGB: {rgb}")
+                #print(f"LED {led_num} set to RGB: {rgb}")
         except Exception as e:
             print(f"Error setting LED color: {e}")
 
@@ -258,7 +260,7 @@ class LEDControlRPI:
             return
         original_color = self.led_states[led_num]
         try:
-            print(f"Blinking LED {led_num} with color {rgb} for {duration} cycles")
+            #print(f"Blinking LED {led_num} with color {rgb} for {duration} cycles")
             for _ in range(duration):
                 self.set_color(led_num, rgb)
                 time.sleep(0.3)
@@ -493,9 +495,9 @@ def record_and_transcribe():
             while not cancel_recording and is_recording:
                 if check_cancel_input():
                     # Immediately play a cancel beep
-                    play_beep(frequency=400, duration=0.1, volume=0.3)
+                    play_beep(frequency=400, duration=0.3, volume=0.3)
                     time.sleep(0.05)
-                    play_beep(frequency=400, duration=0.1, volume=0.3)
+                    play_beep(frequency=400, duration=0.3, volume=0.3)
                     break
                 time.sleep(0.005)  # Check more frequently (5ms instead of 10ms)
         
@@ -508,7 +510,7 @@ def record_and_transcribe():
             print("Listening...")
             
             # Play a "start listening" beep - higher pitch
-            play_beep(frequency=1200, duration=0.1, volume=0.3)
+            play_beep(frequency=1200, duration=0.3, volume=0.3)
             
             try:
                 # Make sure recognizer has reasonable default timeout
@@ -528,7 +530,7 @@ def record_and_transcribe():
                     return
                 
                 # Play an "end listening" beep - lower pitch
-                play_beep(frequency=800, duration=0.1, volume=0.3)
+                play_beep(frequency=800, duration=0.3, volume=0.3)
                 
                 print("Recognizing...")
                 # Set a longer timeout for recognition process
@@ -596,8 +598,10 @@ def record_and_transcribe():
                                         if "success" in runResponse and runResponse["success"]:
                                             speak_text(f"Weaving the dunes for: {draw_prompt}")
                                         else:
+                                            print(f"Error running theta_rho: {runResponse['detail']}")
                                             speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
                                     else:
+                                        print(f"Error uploading theta_rho: {uploadResponse['detail']}")
                                         speak_text("Sorry, I couldn't upload the pattern to DuneWeaver.")
 
                                     
@@ -635,9 +639,9 @@ def record_and_transcribe():
             except sr.WaitTimeoutError:
                 print("No speech detected within timeout period")
                 # Play a "timeout" beep - two short low beeps
-                play_beep(frequency=500, duration=0.1, volume=0.3)
+                play_beep(frequency=500, duration=0.3, volume=0.3)
                 time.sleep(0.1)
-                play_beep(frequency=500, duration=0.1, volume=0.3)
+                play_beep(frequency=500, duration=0.3, volume=0.3)
                 
                 if IS_RPI:
                     led_control.blink(LISTENING_LED, LED_ORANGE, 1)
@@ -795,7 +799,7 @@ def main():
         
         # Play startup sound and greeting
         #time.sleep(0.5)  # Brief pause before greeting
-        speak_text("Shall we weave some dunes? Press the button to start.")
+        speak_text("Shall we weave some dunes? Press the button and wait for the beep to start.")
         
         while running:
             if IS_RPI:
