@@ -173,56 +173,92 @@ class LEDControlDummy:
 class LEDControlRPI:
     """LED control for RPI with ReSpeaker"""
     def __init__(self, led_brightness=None):
-        self.led_power = gpiozero.LED(LEDS_GPIO, active_high=False)
-        self.led_brightness = led_brightness
-        self.turn_on()
-        self.led_states = [LED_OFF] * NUM_LEDS
-        self.leds = None
+        try:
+            print("Initializing ReSpeaker 2-Mic Hat LEDs...")
+            self.led_power = gpiozero.LED(LEDS_GPIO, active_high=False)
+            self.led_brightness = led_brightness if led_brightness is not None else 10
+            self.led_states = [LED_OFF] * NUM_LEDS
+            self.leds = None
+            # Ensure LED power is on
+            print(f"Turning on LED power pin {LEDS_GPIO}...")
+            self.turn_on()
+            print("LED initialization complete")
+        except Exception as e:
+            print(f"ERROR initializing LEDs: {e}")
+            self.leds = None
 
     def set_color(self, led_num: int, rgb: Tuple[int, int, int]):
         if led_num < 0 or led_num >= NUM_LEDS:
             return
         if self.leds is None:
-            return
-        if self.led_states[led_num] == rgb:
+            print(f"WARNING: Cannot set LED color - LED controller not initialized")
             return
         try:
-            self.leds.set_pixel(led_num, rgb[0], rgb[1], rgb[2])
-            self.leds.show()
-            self.led_states[led_num] = rgb
+            # Only update if color is different
+            if self.led_states[led_num] != rgb:
+                self.leds.set_pixel(led_num, rgb[0], rgb[1], rgb[2])
+                self.leds.show()
+                self.led_states[led_num] = rgb
+                print(f"LED {led_num} set to RGB: {rgb}")
         except Exception as e:
             print(f"Error setting LED color: {e}")
 
     def turn_on(self):
         try:
+            # First turn on power
+            print("Activating LED power...")
             self.led_power.on()
-            if self.led_brightness is not None:
-                self.leds = APA102(num_led=NUM_LEDS, global_brightness=self.led_brightness)
-            else:
-                self.leds = APA102(num_led=NUM_LEDS)
+            time.sleep(0.2)  # Give power time to stabilize
+            
+            # Then initialize APA102 driver
+            print(f"Creating APA102 driver with {NUM_LEDS} LEDs, brightness: {self.led_brightness}")
+            self.leds = APA102(num_led=NUM_LEDS, global_brightness=self.led_brightness)
             self.led_states = [LED_OFF] * NUM_LEDS
+            
+            # Turn off all LEDs initially (to reset state)
+            print("Resetting all LEDs to OFF state")
             for i in range(NUM_LEDS):
-                self.set_color(i, LED_OFF)
+                self.leds.set_pixel(i, 0, 0, 0)
+            self.leds.show()
+            
+            # Test by briefly flashing all LEDs
+            print("Testing all LEDs with brief flash...")
+            # Flash red, green, blue in sequence
+            for color in [(255, 0, 0), (0, 255, 0), (0, 0, 255)]:
+                for i in range(NUM_LEDS):
+                    self.leds.set_pixel(i, color[0], color[1], color[2])
+                self.leds.show()
+                time.sleep(0.1)
+                for i in range(NUM_LEDS):
+                    self.leds.set_pixel(i, 0, 0, 0)
+                self.leds.show()
+                time.sleep(0.1)
+            
+            print("LED power and initialization successful")
         except Exception as e:
-            print(f"Error turning on LEDs: {e}")
+            print(f"ERROR turning on LEDs: {e}")
             self.leds = None
 
     def turn_off(self):
         try:
             if self.leds is not None:
+                print("Turning off all LEDs")
                 for i in range(NUM_LEDS):
                     self.set_color(i, LED_OFF)
                 self.leds.cleanup()
                 self.leds = None
+            print(f"Turning off LED power pin {LEDS_GPIO}")
             self.led_power.off()
         except Exception as e:
             print(f"Error turning off LEDs: {e}")
 
     def blink(self, led_num: int, rgb: Tuple[int, int, int], duration: int):
         if self.leds is None:
+            print("WARNING: Cannot blink LED - LED controller not initialized")
             return
         original_color = self.led_states[led_num]
         try:
+            print(f"Blinking LED {led_num} with color {rgb} for {duration} cycles")
             for _ in range(duration):
                 self.set_color(led_num, rgb)
                 time.sleep(0.3)
@@ -234,6 +270,43 @@ class LEDControlRPI:
 
 # Initialize LED controller based on platform
 led_control = LEDControlRPI(led_brightness=LED_BRIGHTNESS) if IS_RPI else LEDControlDummy()
+
+# Run a direct test of the APA102 LEDs if we're on an RPI
+if IS_RPI:
+    try:
+        print("\n=== RUNNING DIRECT APA102 LED TEST ===")
+        # Ensure the power pin is on
+        power_pin = gpiozero.LED(LEDS_GPIO, active_high=False)
+        power_pin.on()
+        time.sleep(0.5)  # Wait for power to stabilize
+        
+        # Create a direct APA102 instance for testing
+        test_leds = APA102(num_led=NUM_LEDS, global_brightness=31)  # Full brightness for test
+        
+        # Flash each LED in red, green, blue sequence
+        for color_name, color in [("RED", (255, 0, 0)), ("GREEN", (0, 255, 0)), ("BLUE", (0, 0, 255))]:
+            print(f"Testing all LEDs with {color_name}")
+            for i in range(NUM_LEDS):
+                # Clear all LEDs
+                for j in range(NUM_LEDS):
+                    test_leds.set_pixel(j, 0, 0, 0)
+                test_leds.show()
+                
+                # Set the current LED
+                test_leds.set_pixel(i, color[0], color[1], color[2])
+                test_leds.show()
+                print(f"  LED {i} should now be {color_name}")
+                time.sleep(0.5)
+        
+        # Turn all LEDs off
+        for i in range(NUM_LEDS):
+            test_leds.set_pixel(i, 0, 0, 0)
+        test_leds.show()
+        test_leds.cleanup()
+        
+        print("=== DIRECT LED TEST COMPLETE ===\n")
+    except Exception as e:
+        print(f"Error during direct LED test: {e}")
 
 def check_cancel_input():
     """Check if cancel input (button/Enter) was triggered"""
@@ -635,17 +708,25 @@ def startup_animation():
     global startup_animation_running
     sequence_index = 0
     
-    while startup_animation_running:
-        # Get the next LED and color in the sequence
-        led_num, color = STARTUP_SEQUENCE[sequence_index]
+    print("Starting LED animation sequence...")
+    try:
+        while startup_animation_running:
+            # Get the next LED and color in the sequence
+            led_num, color = STARTUP_SEQUENCE[sequence_index]
+            
+            # Light up the LED
+            print(f"Animation: Lighting LED {led_num} with color {color}")
+            led_control.set_color(led_num, color)
+            time.sleep(0.2)
+            led_control.set_color(led_num, LED_OFF)
+            time.sleep(0.1)
+            
+            # Move to next LED in sequence
+            sequence_index = (sequence_index + 1) % len(STARTUP_SEQUENCE)
         
-        # Light up the LED
-        led_control.set_color(led_num, color)
-        time.sleep(0.2)
-        led_control.set_color(led_num, LED_OFF)
-        
-        # Move to next LED in sequence
-        sequence_index = (sequence_index + 1) % len(STARTUP_SEQUENCE)
+        print("Startup animation completed")
+    except Exception as e:
+        print(f"Error in startup animation: {e}")
 
 def main():
     global running, startup_animation_running, cancel_recording, last_cancel_time
@@ -661,6 +742,7 @@ def main():
         startup_thread = None
         if IS_RPI:
             # Set up GPIO for button if on RPI
+            print("Setting up GPIO for ReSpeaker 2-Mic Hat...")
             GPIO.setmode(GPIO.BCM)
             GPIO.setup(BUTTON_PIN, GPIO.IN, pull_up_down=GPIO.PUD_UP)
             
@@ -673,9 +755,14 @@ def main():
             print(f"Initial button state: {button_state}")
             
             # Start the animation
+            print("Starting LED startup animation...")
+            startup_animation_running = True
             startup_thread = threading.Thread(target=startup_animation)
             startup_thread.daemon = True
             startup_thread.start()
+            
+            # Give the startup animation some time to run before proceeding
+            time.sleep(2)
         
         # Initialize microphone and adjust for ambient noise
         print("Adjusting for ambient noise...")
@@ -684,11 +771,14 @@ def main():
         print("Microphone initialized")
         
         # Stop the startup animation
+        print("Stopping startup animation...")
         startup_animation_running = False
         if startup_thread:
             startup_thread.join(timeout=1)
+            print("Startup animation thread completed")
         
         if IS_RPI:
+            print("Setting POWER_LED to GREEN to indicate ready state")
             led_control.set_color(POWER_LED, LED_GREEN)
             print(f"Press button to start recording")
             
