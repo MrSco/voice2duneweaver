@@ -799,7 +799,8 @@ def main():
         
         # Play startup sound and greeting
         #time.sleep(0.5)  # Brief pause before greeting
-        speak_text("Shall we weave some dunes? Press the button and wait for the beep to start.")
+        speak_text("Shall we weave some dunes?")
+        speak_text("Press the button and wait for the beep.")
         
         while running:
             if IS_RPI:
