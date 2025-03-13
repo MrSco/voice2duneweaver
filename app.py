@@ -17,6 +17,10 @@ from image2sand import Image2Sand
 import cv2
 import numpy as np
 import requests
+import pyaudio
+import math
+import struct
+import array
 
 # Load environment variables from .env file
 load_dotenv()
@@ -74,8 +78,64 @@ startup_animation_running = True
 cancel_recording = False
 last_cancel_time = 0
 
+# Custom Recognizer class that can be interrupted
+class CancellableRecognizer(sr.Recognizer):
+    def __init__(self):
+        super().__init__()
+        self.should_cancel = False
+        self.original_timeout = None
+    
+    def listen(self, source, timeout=None, phrase_time_limit=None, snowboy_configuration=None):
+        """
+        Override the listen method to check for cancellation
+        """
+        self.should_cancel = False
+        # Store the original timeout to restore it if needed
+        self.original_timeout = self.operation_timeout
+        
+        # Create a thread to check for cancellation
+        def check_cancel():
+            while not self.should_cancel and is_recording:
+                if cancel_recording:
+                    print("Cancel detected, forcing timeout...")
+                    self.should_cancel = True
+                    # Force timeout to exit listen operation, but only when cancelling
+                    self.operation_timeout = 0.1
+                time.sleep(0.001)  # Check very frequently (1ms)
+        
+        cancel_thread = threading.Thread(target=check_cancel)
+        cancel_thread.daemon = True
+        cancel_thread.start()
+        
+        try:
+            # Use a longer timeout for normal speech recognition
+            result = super().listen(source, timeout, phrase_time_limit, snowboy_configuration)
+            # Reset the timeout to its original value
+            if self.original_timeout is not None:
+                self.operation_timeout = self.original_timeout
+            return result
+        except sr.WaitTimeoutError:
+            # Reset the timeout to its original value
+            if self.original_timeout is not None:
+                self.operation_timeout = self.original_timeout
+                
+            if self.should_cancel or cancel_recording:
+                # This is an expected timeout due to cancellation
+                raise sr.WaitTimeoutError("Listening cancelled by user")
+            else:
+                # This is a normal timeout
+                raise
+        except Exception as e:
+            # Always restore the original timeout in case of exception
+            if self.original_timeout is not None:
+                self.operation_timeout = self.original_timeout
+            raise
+
 # Initialize recognition objects
-recognizer = sr.Recognizer()
+recognizer = CancellableRecognizer()
+recognizer.operation_timeout = 30.0  # Set a longer default timeout for recognizer
+recognizer.dynamic_energy_threshold = True  # Enable dynamic energy threshold
+recognizer.energy_threshold = 300  # Set a reasonable energy threshold for speech detection
 microphone = sr.Microphone()
 
 # Ensure transcripts directory exists
@@ -181,7 +241,7 @@ def check_cancel_input():
     
     # Prevent rapid re-triggering
     current_time = time.time()
-    if current_time - last_cancel_time < 1.0:  # 1 second cooldown
+    if current_time - last_cancel_time < 0.5:  # Reduced cooldown to 0.5 seconds for more responsive cancellation
         return False
     
     if IS_RPI:
@@ -189,9 +249,10 @@ def check_cancel_input():
         if GPIO.input(BUTTON_PIN) == GPIO.LOW:
             # For cancelling, we need to ensure this is a NEW button press
             # not the same press that started the recording
-            if current_time - last_cancel_time > 2.0:  # Require at least 2 seconds between start and cancel
+            if current_time - last_cancel_time > 1.0:  # Reduced to 1 second for more responsive cancellation
                 cancel_recording = True
                 last_cancel_time = current_time
+                print("\nCancelling recording...")
                 return True
     else:
         # Check if Enter was pressed (non-blocking)
@@ -203,6 +264,10 @@ def check_cancel_input():
                 if key in [b'\r', b'\n']:  # Both Enter and Return
                     cancel_recording = True
                     last_cancel_time = current_time
+                    print("\nCancelling recording...")
+                    # Clear any remaining input in the buffer
+                    while msvcrt.kbhit():
+                        msvcrt.getch()
                     return True
         else:
             # Unix-like systems (Linux/Mac)
@@ -210,11 +275,12 @@ def check_cancel_input():
             import select
             
             # Check if input is available
-            if select.select([sys.stdin], [], [], 0.01)[0]:  # Reduced timeout to 10ms
+            if select.select([sys.stdin], [], [], 0.005)[0]:  # Reduced timeout to 5ms for faster response
                 key = sys.stdin.read(1)
                 if key in ['\n', '\r']:  # Both Enter and Return
                     cancel_recording = True
                     last_cancel_time = current_time
+                    print("\nCancelling recording...")
                     # Clear input buffer
                     import termios
                     termios.tcflush(sys.stdin, termios.TCIFLUSH)
@@ -247,11 +313,13 @@ def generate_image_with_gemini(prompt: str) -> Optional[Image.Image]:
 def extract_draw_prompt(text: str) -> Optional[str]:
     """Extract the drawing prompt from the transcribed text"""
     text = text.lower()
+    prompt = None
     if "draw" in text:
         # Get everything after the word "draw"
         prompt = text.split("draw", 1)[1].strip()
-        return prompt
-    return None
+    else:
+        prompt = text.strip()
+    return prompt
 
 def extract_stop_prompt(text: str) -> Optional[str]:
     """Extract the stop prompt from the transcribed text"""
@@ -289,9 +357,55 @@ def stop_execution():
     response = requests.post(url)
     return response.json()
 
+def play_beep(frequency=1000, duration=0.2, volume=0.5):
+    """
+    Play a beep sound using pyaudio
+    
+    Parameters:
+    - frequency: tone frequency in Hz (higher = higher pitch)
+    - duration: length of beep in seconds
+    - volume: volume level from 0.0 to 1.0
+    """    
+    try:
+        # Define the audio parameters
+        p = pyaudio.PyAudio()
+        
+        # Audio parameters
+        chunk = 1024  # Buffer size
+        format = pyaudio.paFloat32  # Audio format
+        channels = 1  # Number of channels (mono)
+        rate = 44100  # Sample rate (Hz)
+        
+        # Create the audio stream
+        stream = p.open(format=format, channels=channels, rate=rate, output=True)
+        
+        # Generate the beep sound (a sine wave)
+        samples = (rate * duration)  # Number of samples to generate
+        wave_data = ''
+        
+        # Create the sine wave
+        sine_wave = array.array('f', [0.0] * int(samples))
+        for i in range(int(samples)):
+            sine_value = math.sin(2.0 * math.pi * frequency * i / rate)
+            sine_wave[i] = float(volume * sine_value)
+        
+        # Convert to binary data
+        packed_wave = struct.pack('%df' % len(sine_wave), *sine_wave)
+        
+        # Play the sound
+        stream.write(packed_wave)
+        
+        # Clean up the audio stream
+        stream.stop_stream()
+        stream.close()
+        p.terminate()
+        
+    except Exception as e:
+        print(f"Error playing beep: {e}")
+
 def record_and_transcribe():
     """Record audio and transcribe it using Google Speech Recognition"""
-    global is_recording, cancel_recording
+    global is_recording, cancel_recording, last_cancel_time
     
     if IS_RPI:
         led_control.set_color(LISTENING_LED, LED_BLUE)
@@ -305,8 +419,12 @@ def record_and_transcribe():
         def check_cancel_loop():
             while not cancel_recording and is_recording:
                 if check_cancel_input():
+                    # Immediately play a cancel beep
+                    play_beep(frequency=400, duration=0.1, volume=0.3)
+                    time.sleep(0.05)
+                    play_beep(frequency=400, duration=0.1, volume=0.3)
                     break
-                time.sleep(0.01)
+                time.sleep(0.005)  # Check more frequently (5ms instead of 10ms)
         
         cancel_thread = threading.Thread(target=check_cancel_loop)
         cancel_thread.daemon = True
@@ -314,133 +432,163 @@ def record_and_transcribe():
         
         # Record and recognize speech
         with microphone as source:
-            print("Adjusting for ambient noise...")
-            recognizer.adjust_for_ambient_noise(source, duration=1)
             print("Listening...")
             
+            # Play a "start listening" beep - higher pitch
+            play_beep(frequency=1200, duration=0.1, volume=0.3)
+            
             try:
-                # Set a longer timeout and phrase_time_limit
+                # Make sure recognizer has reasonable default timeout
+                recognizer.operation_timeout = None  # Use system default for listening
+                
+                # Set a longer timeout and phrase_time_limit for listen
                 audio = recognizer.listen(source, timeout=10, phrase_time_limit=5)
                 
-                if cancel_recording:
+                # Check if cancel was requested during recording
+                if cancel_recording or recognizer.should_cancel:
                     print("\nRecording cancelled by user")
                     if IS_RPI:
                         led_control.blink(LISTENING_LED, LED_RED, 1)
                     speak_text("Recording cancelled.")
+                    # Set a longer cooldown after cancellation
+                    last_cancel_time = time.time() + 1.0  # Add extra cooldown time
                     return
                 
-                print("Recognizing...")
-                text = recognizer.recognize_google(audio)
-                print(f"Recognized: {text}")
+                # Play an "end listening" beep - lower pitch
+                play_beep(frequency=800, duration=0.1, volume=0.3)
                 
-                stop_prompt = extract_stop_prompt(text)
-                if stop_prompt:
-                    speak_text("Stopping DuneWeaver execution...")
-                    stop_execution()
-                else:
-                    # Extract drawing prompt if present
-                    draw_prompt = extract_draw_prompt(text)
-                    if draw_prompt:
-                        speak_text(f"I'll draw {draw_prompt}")
-                        print(f"Generating image for: {draw_prompt}")
-                        
-                        if IS_RPI:
-                            led_control.set_color(LISTENING_LED, LED_ORANGE)
-                        
-                        # Generate image using Gemini
-                        image = generate_image_with_gemini(f"Draw an image of the following: {draw_prompt}. But make it a simple black silhouette on a white background, with very minimal detail and no additional content in the image, so I can use it for a computer icon.")
-                        
-                        if image:
-                            # Convert image to sand pattern
-                            try:
-                                print("Converting image to sand pattern...")
-                                image2sand = Image2Sand()
-                                
-                                # Convert PIL Image to OpenCV format (numpy array)
-                                img_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                                
-                                # Configure options for sand pattern generation
-                                options = {
-                                    'epsilon': 0.5,  # Controls point density
-                                    'contour_mode': 'Tree',  # Use tree mode for better pattern detection
-                                    'is_loop': True,  # Create continuous patterns
-                                    'minimize_jumps': True,  # Optimize path to minimize jumps
-                                    'output_format': 2,  # Use .thr format for Dune Weaver
-                                    'max_points': 300  # Limit number of points for smooth operation
-                                }
-                                
-                                # Process the image directly and generate coordinates
-                                result = image2sand.process_image(img_array, options)
-                                
-                                # Save the pattern
-                                pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
-                                with open(pattern_path, 'w') as f:
-                                    f.write(result['formatted_coords'])
-                                
-                                print(f"Sand pattern saved to: {pattern_path}")
-                                print(f"Number of points in pattern: {result['point_count']}")
-                                
-                                if IS_RPI:
-                                    led_control.blink(LISTENING_LED, LED_GREEN, 2)
-                                #speak_text("Pattern generated successfully.")
-                                
-                                uploadResponse = upload_theta_rho(pattern_path)
-                                # check if response has a "success" key and if it's true
-                                if "success" in uploadResponse and uploadResponse["success"]:
-                                    #speak_text("Pattern uploaded to DuneWeaver.")
-                                    theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
-                                    runResponse = run_theta_rho(theta_rho_file)
-                                    if "success" in runResponse and runResponse["success"]:
-                                        speak_text(f"Weaving the dunes for: {draw_prompt}")
+                print("Recognizing...")
+                # Set a longer timeout for recognition process
+                recognizer.operation_timeout = 30.0
+                
+                try:
+                    text = recognizer.recognize_google(audio)
+                    print(f"Recognized: {text}")
+                    
+                    stop_prompt = extract_stop_prompt(text)
+                    if stop_prompt:
+                        speak_text("Stopping DuneWeaver execution...")
+                        stop_execution()
+                    else:
+                        # Extract drawing prompt if present
+                        draw_prompt = extract_draw_prompt(text)
+                        if draw_prompt:
+                            speak_text(f"I'll draw {draw_prompt}")
+                            print(f"Generating image for: {draw_prompt}")
+                            
+                            if IS_RPI:
+                                led_control.set_color(LISTENING_LED, LED_ORANGE)
+                            
+                            # Generate image using Gemini
+                            image = generate_image_with_gemini(f"Draw an image of the following: {draw_prompt}. But make it a simple black silhouette on a white background, with very minimal detail and no additional content in the image, so I can use it for a computer icon.")
+                            
+                            if image:
+                                # Convert image to sand pattern
+                                try:
+                                    print("Converting image to sand pattern...")
+                                    image2sand = Image2Sand()
+                                    
+                                    # Convert PIL Image to OpenCV format (numpy array)
+                                    img_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                                    
+                                    # Configure options for sand pattern generation
+                                    options = {
+                                        'epsilon': 0.5,  # Controls point density
+                                        'contour_mode': 'Tree',  # Use tree mode for better pattern detection
+                                        'is_loop': True,  # Create continuous patterns
+                                        'minimize_jumps': True,  # Optimize path to minimize jumps
+                                        'output_format': 2,  # Use .thr format for Dune Weaver
+                                        'max_points': 300  # Limit number of points for smooth operation
+                                    }
+                                    
+                                    # Process the image directly and generate coordinates
+                                    result = image2sand.process_image(img_array, options)
+                                    
+                                    # Save the pattern
+                                    pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
+                                    with open(pattern_path, 'w') as f:
+                                        f.write(result['formatted_coords'])
+                                    
+                                    print(f"Sand pattern saved to: {pattern_path}")
+                                    print(f"Number of points in pattern: {result['point_count']}")
+                                    
+                                    if IS_RPI:
+                                        led_control.blink(LISTENING_LED, LED_GREEN, 2)
+                                    
+                                    uploadResponse = upload_theta_rho(pattern_path)
+                                    # check if response has a "success" key and if it's true
+                                    if "success" in uploadResponse and uploadResponse["success"]:
+                                        theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
+                                        runResponse = run_theta_rho(theta_rho_file)
+                                        if "success" in runResponse and runResponse["success"]:
+                                            speak_text(f"Weaving the dunes for: {draw_prompt}")
+                                        else:
+                                            speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
                                     else:
-                                        speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
-                                else:
-                                    speak_text("Sorry, I couldn't upload the pattern to DuneWeaver.")
+                                        speak_text("Sorry, I couldn't upload the pattern to DuneWeaver.")
 
+                                    
+                                except Exception as e:
+                                    print(f"Error converting image to sand pattern: {e}")
+                                    if IS_RPI:
+                                        led_control.blink(LISTENING_LED, LED_RED, 2)
+                                    speak_text("Sorry, I couldn't convert the image to a sand pattern.")
                                 
-                            except Exception as e:
-                                print(f"Error converting image to sand pattern: {e}")
+                            else:
                                 if IS_RPI:
                                     led_control.blink(LISTENING_LED, LED_RED, 2)
-                                speak_text("Sorry, I couldn't convert the image to a sand pattern.")
-                            
+                                speak_text("Sorry, I couldn't generate the image.")
                         else:
-                            if IS_RPI:
-                                led_control.blink(LISTENING_LED, LED_RED, 2)
-                            speak_text("Sorry, I couldn't generate the image.")
-                    else:
-                        speak_text("Sorry, I can only weave dunes. Ask me to draw something.")
+                            speak_text("Sorry, I can only weave dunes. Ask me to draw something.")
+
+                except sr.UnknownValueError:
+                    print("Could not understand the audio")
+                    # Play an "error" beep - low pitch
+                    play_beep(frequency=300, duration=0.2, volume=0.3)
+                    
+                    if IS_RPI:
+                        led_control.blink(LISTENING_LED, LED_RED, 2)
+                    speak_text("Sorry, I couldn't understand that.")
+                    
+                except sr.RequestError as e:
+                    print(f"Could not request results from Google Speech Recognition service; {e}")
+                    # Play an "error" beep - low pitch
+                    play_beep(frequency=300, duration=0.2, volume=0.3)
+                    
+                    if IS_RPI:
+                        led_control.blink(LISTENING_LED, LED_RED, 2)
+                    speak_text("Sorry, there was an error with speech recognition.")
 
             except sr.WaitTimeoutError:
                 print("No speech detected within timeout period")
+                # Play a "timeout" beep - two short low beeps
+                play_beep(frequency=500, duration=0.1, volume=0.3)
+                time.sleep(0.1)
+                play_beep(frequency=500, duration=0.1, volume=0.3)
+                
                 if IS_RPI:
                     led_control.blink(LISTENING_LED, LED_ORANGE, 1)
                 speak_text("I didn't hear anything. Please try again.")
             
-    except sr.UnknownValueError:
-        print("Could not understand the audio")
-        if IS_RPI:
-            led_control.blink(LISTENING_LED, LED_RED, 2)
-        speak_text("Sorry, I couldn't understand that.")
-        
-    except sr.RequestError as e:
-        print(f"Could not request results from Google Speech Recognition service; {e}")
-        if IS_RPI:
-            led_control.blink(LISTENING_LED, LED_RED, 2)
-        speak_text("Sorry, there was an error with speech recognition.")
-        
-    except Exception as e:
-        if not cancel_recording:
-            print(f"Error during speech recognition: {e}")
-            if IS_RPI:
-                led_control.blink(LISTENING_LED, LED_RED, 2)
-            speak_text("Sorry, an error occurred.")
+            except Exception as e:
+                if not cancel_recording:
+                    print(f"Error during speech recognition: {e}")
+                    # Play an "error" beep - low pitch
+                    play_beep(frequency=300, duration=0.2, volume=0.3)
+                    
+                    if IS_RPI:
+                        led_control.blink(LISTENING_LED, LED_RED, 2)
+                    speak_text("Sorry, an error occurred.")
     
     finally:
+        # Ensure cancel flag is reset
         is_recording = False
         cancel_recording = False
         if IS_RPI:
             led_control.set_color(LISTENING_LED, LED_OFF)
+        
+        # Set a cooldown period to prevent immediate restart
+        last_cancel_time = time.time()
 
 def cleanup():
     """Clean up resources"""
@@ -557,9 +705,7 @@ def main():
         
         # Play startup sound and greeting
         #time.sleep(0.5)  # Brief pause before greeting
-        speak_text("Shall we weave some dunes?")
-        time.sleep(0.3)
-        speak_text("Ask me to draw something!")
+        speak_text("Shall we weave some dunes? Press the button to start.")
         
         while running:
             if IS_RPI:
@@ -567,7 +713,7 @@ def main():
                 if GPIO.input(BUTTON_PIN) == GPIO.LOW and not is_recording:
                     # Check if enough time has passed since last cancellation
                     current_time = time.time()
-                    if current_time - last_cancel_time > 1.0:
+                    if current_time - last_cancel_time > 2.0:  # Increased to 2 seconds to prevent accidental restart
                         cancel_recording = False  # Reset cancel flag
                         # Record the time when we start recording
                         last_cancel_time = current_time
@@ -576,16 +722,28 @@ def main():
                         # before we start checking for cancellation
                         time.sleep(0.5)
                         record_and_transcribe()
+                    else:
+                        # If trying to start too quickly, show message
+                        print(f"Please wait a moment before starting again... ({int(2.0 - (current_time - last_cancel_time))}s)")
+                        # Add a small delay to prevent button bounce
+                        time.sleep(0.5)
             else:
                 try:
                     # On desktop, wait for Enter key
                     input("Press Enter to start recording...")
                     if not is_recording:
-                        # Check if enough time has passed since last cancellation
+                        # Check if enough time has passed since last operation
                         current_time = time.time()
-                        if current_time - last_cancel_time > 1.0:
+                        if current_time - last_cancel_time > 2.0:  # Increased cooldown to 2 seconds
                             cancel_recording = False  # Reset cancel flag
+                            last_cancel_time = current_time  # Update to prevent immediate cancellation
                             record_and_transcribe()
+                        else:
+                            # If trying to start too quickly after last operation, show message
+                            remaining = max(0, int(2.0 - (current_time - last_cancel_time)))
+                            print(f"Please wait a moment before starting again... ({remaining}s)")
+                            # Add a small delay to prevent immediate retry
+                            time.sleep(0.5)
                 except EOFError:
                     # Handle Ctrl+D gracefully
                     running = False
