@@ -6,6 +6,7 @@ google-genai  # For Gemini API
 Pillow  # For image handling
 opencv-python  # For image processing
 numpy  # For array operations
+pyaudio  # For audio input
 
 # Optional RPI-specific dependencies
 RPi.GPIO; platform_system == "Linux"  # GPIO control for Raspberry Pi
