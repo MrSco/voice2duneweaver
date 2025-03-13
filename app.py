@@ -354,16 +354,16 @@ def record_and_transcribe():
                             
                             if IS_RPI:
                                 led_control.blink(LISTENING_LED, LED_GREEN, 2)
-                            speak_text("Pattern generated successfully.")
+                            #speak_text("Pattern generated successfully.")
                             
                             uploadResponse = upload_theta_rho(pattern_path)
                             # check if response has a "success" key and if it's true
                             if "success" in uploadResponse and uploadResponse["success"]:
-                                speak_text("Pattern uploaded to DuneWeaver.")
+                                #speak_text("Pattern uploaded to DuneWeaver.")
                                 theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
                                 runResponse = run_theta_rho(theta_rho_file)
                                 if "success" in runResponse and runResponse["success"]:
-                                    speak_text("Weaving the dunes!")
+                                    speak_text(f"Weaving the dunes for: {draw_prompt}")
                                 else:
                                     speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
                             else:
