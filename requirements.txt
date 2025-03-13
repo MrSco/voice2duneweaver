@@ -1,0 +1,13 @@
+# Core dependencies
+python-dotenv  # For environment variables
+SpeechRecognition  # For speech recognition
+pyttsx3  # For text-to-speech
+google-genai  # For Gemini API
+Pillow  # For image handling
+opencv-python  # For image processing
+numpy  # For array operations
+
+# Optional RPI-specific dependencies
+RPi.GPIO; platform_system == "Linux"  # GPIO control for Raspberry Pi
+gpiozero; platform_system == "Linux"  # GPIO utilities for Raspberry Pi
+apa102-pi; platform_system == "Linux"  # For LED control on ReSpeaker
