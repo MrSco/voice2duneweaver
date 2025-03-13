@@ -94,13 +94,14 @@ If you want Voice2DuneWeaver to start automatically on boot and run in the backg
    ```
    [Unit]
    Description=Voice2DuneWeaver Service
-   After=network.target
+   After=network.target sound.target
+   Wants=network.target sound.target
 
    [Service]
    Type=simple
    User=YOUR_USERNAME
    WorkingDirectory=/path/to/your/voice2duneweaver
-   ExecStart=/bin/bash -c 'source /path/to/your/voice2duneweaver/.venv/bin/activate && python /path/to/your/voice2duneweaver/app.py'
+   ExecStart=/bin/bash /path/to/your/voice2duneweaver/run.sh
    Restart=on-failure
    RestartSec=5s
 
