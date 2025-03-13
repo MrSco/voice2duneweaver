@@ -117,40 +117,60 @@ class LEDControlRPI:
         self.led_brightness = led_brightness
         self.turn_on()
         self.led_states = [LED_OFF] * NUM_LEDS
+        self.leds = None
 
     def set_color(self, led_num: int, rgb: Tuple[int, int, int]):
         if led_num < 0 or led_num >= NUM_LEDS:
             return
+        if self.leds is None:
+            return
         if self.led_states[led_num] == rgb:
             return
-        self.leds.set_pixel(led_num, rgb[0], rgb[1], rgb[2])
-        self.leds.show()
-        self.led_states[led_num] = rgb
+        try:
+            self.leds.set_pixel(led_num, rgb[0], rgb[1], rgb[2])
+            self.leds.show()
+            self.led_states[led_num] = rgb
+        except Exception as e:
+            print(f"Error setting LED color: {e}")
 
     def turn_on(self):
-        self.led_power.on()
-        if self.led_brightness is not None:
-            self.leds = APA102(num_led=NUM_LEDS, global_brightness=self.led_brightness)
-        else:
-            self.leds = APA102(num_led=NUM_LEDS)
-        self.led_states = [LED_OFF] * NUM_LEDS
-        for i in range(NUM_LEDS):
-            self.set_color(i, LED_OFF)
+        try:
+            self.led_power.on()
+            if self.led_brightness is not None:
+                self.leds = APA102(num_led=NUM_LEDS, global_brightness=self.led_brightness)
+            else:
+                self.leds = APA102(num_led=NUM_LEDS)
+            self.led_states = [LED_OFF] * NUM_LEDS
+            for i in range(NUM_LEDS):
+                self.set_color(i, LED_OFF)
+        except Exception as e:
+            print(f"Error turning on LEDs: {e}")
+            self.leds = None
 
     def turn_off(self):
-        for i in range(NUM_LEDS):
-            self.set_color(i, LED_OFF)
-        self.leds.cleanup()
-        self.led_power.off()
+        try:
+            if self.leds is not None:
+                for i in range(NUM_LEDS):
+                    self.set_color(i, LED_OFF)
+                self.leds.cleanup()
+                self.leds = None
+            self.led_power.off()
+        except Exception as e:
+            print(f"Error turning off LEDs: {e}")
 
     def blink(self, led_num: int, rgb: Tuple[int, int, int], duration: int):
+        if self.leds is None:
+            return
         original_color = self.led_states[led_num]
-        for _ in range(duration):
-            self.set_color(led_num, rgb)
-            time.sleep(0.3)
-            self.set_color(led_num, LED_OFF)
-            time.sleep(0.3)
-        self.set_color(led_num, original_color)
+        try:
+            for _ in range(duration):
+                self.set_color(led_num, rgb)
+                time.sleep(0.3)
+                self.set_color(led_num, LED_OFF)
+                time.sleep(0.3)
+            self.set_color(led_num, original_color)
+        except Exception as e:
+            print(f"Error blinking LED: {e}")
 
 # Initialize LED controller based on platform
 led_control = LEDControlRPI(led_brightness=LED_BRIGHTNESS) if IS_RPI else LEDControlDummy()
@@ -424,15 +444,43 @@ def record_and_transcribe():
 
 def cleanup():
     """Clean up resources"""
-    if IS_RPI:
-        led_control.turn_off()
-        GPIO.cleanup()
+    global running
+    running = False
+    
+    print("Cleaning up resources...")
+    
+    try:
+        if IS_RPI:
+            # Turn off all LEDs first
+            for i in range(NUM_LEDS):
+                led_control.set_color(i, LED_OFF)
+            
+            # Cleanup LED resources
+            led_control.turn_off()
+            
+            # Give a small delay to ensure LED operations complete
+            time.sleep(0.2)
+            
+            # Explicitly set GPIO mode before cleanup to avoid the error
+            if not GPIO.getmode():
+                GPIO.setmode(GPIO.BCM)
+            
+            # Clean up GPIO pins
+            GPIO.cleanup()
+            
+            print("GPIO resources cleaned up")
+    except Exception as e:
+        print(f"Error during cleanup: {e}")
 
 def signal_handler(sig, frame):
     """Handle Ctrl+C and other signals"""
     global running
     print("Exiting...")
     running = False
+    cleanup()
+    # Exit immediately to prevent further automatic cleanup
+    import os
+    os._exit(0)
 
 def startup_animation():
     """Run a continuous LED animation sequence until startup is complete."""
@@ -554,4 +602,11 @@ def main():
         cleanup()
 
 if __name__ == "__main__":
-    main() 
+    try:
+        main()
+    except KeyboardInterrupt:
+        # This should catch Ctrl+C if the signal handler somehow misses it
+        print("Keyboard interrupt received")
+    finally:
+        # Ensure cleanup happens
+        cleanup() 
