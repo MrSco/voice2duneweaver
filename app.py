@@ -77,6 +77,7 @@ is_recording = False
 startup_animation_running = True
 cancel_recording = False
 last_cancel_time = 0
+audio_source = None  # Will hold our persistent audio source
 
 # Custom Recognizer class that can be interrupted
 class CancellableRecognizer(sr.Recognizer):
@@ -406,31 +407,46 @@ def extract_stop_prompt(text: str) -> Optional[str]:
 def upload_theta_rho(pattern_path: str):
     """ Do a POST request to the theta_rho API """
     url = f"{DW_URL}/upload_theta_rho"
-
+    response = None
     with open(pattern_path, 'rb') as f:
         files = {'file': f}
-        response = requests.post(url, files=files)
-    #print(response.json())
-    return response.json()
+        try:
+            response = requests.post(url, files=files).json()
+        except Exception as e:
+            print(f"Error uploading theta_rho: {e}")
+            response = {"detail": str(e)}
+        finally:
+            return response
 
 def run_theta_rho(pattern_path: str):
     """ Do a POST request to the theta_rho API """
     url = f"{DW_URL}/run_theta_rho"
-
+    response = None
     data = {
         'file_name': pattern_path,
         'pre_execution': 'adaptive'
     }
     print(f"Running theta_rho with data: {data}")
-    response = requests.post(url, json=data)
-    #print(response.json())
-    return response.json()
+    try:
+        response = requests.post(url, json=data).json()
+        #print(response.json())
+    except Exception as e:
+        print(f"Error running theta_rho: {e}")
+        response = {"detail": str(e)}
+    finally:
+        return response
 
 def stop_execution():
     url = f"{DW_URL}/stop_execution"
     print(f"Stopping DuneWeaver execution...")
-    response = requests.post(url)
-    return response.json()
+    response = None
+    try:
+        response = requests.post(url).json()
+    except Exception as e:
+        print(f"Error stopping DuneWeaver execution: {e}")
+        response = {"detail": str(e)}
+    finally:
+        return response
 
 def play_beep(frequency=1000, duration=0.2, volume=0.5):
     """
@@ -446,7 +462,6 @@ def play_beep(frequency=1000, duration=0.2, volume=0.5):
         p = pyaudio.PyAudio()
         
         # Audio parameters
-        chunk = 1024  # Buffer size
         format = pyaudio.paFloat32  # Audio format
         channels = 1  # Number of channels (mono)
         rate = 44100  # Sample rate (Hz)
@@ -456,7 +471,6 @@ def play_beep(frequency=1000, duration=0.2, volume=0.5):
         
         # Generate the beep sound (a sine wave)
         samples = (rate * duration)  # Number of samples to generate
-        wave_data = ''
         
         # Create the sine wave
         sine_wave = array.array('f', [0.0] * int(samples))
@@ -480,7 +494,7 @@ def play_beep(frequency=1000, duration=0.2, volume=0.5):
 
 def record_and_transcribe():
     """Record audio and transcribe it using Google Speech Recognition"""
-    global is_recording, cancel_recording, last_cancel_time
+    global is_recording, cancel_recording, last_cancel_time, audio_source
     
     if IS_RPI:
         led_control.set_color(LISTENING_LED, LED_BLUE)
@@ -505,157 +519,156 @@ def record_and_transcribe():
         cancel_thread.daemon = True
         cancel_thread.start()
         
-        # Record and recognize speech
-        with microphone as source:
-            print("Listening...")
+        # Use the persistent audio source
+        print("Listening...")
+        
+        # Play a "start listening" beep - higher pitch
+        play_beep(frequency=1200, duration=0.3, volume=0.3)
+        
+        try:
+            # Make sure recognizer has reasonable default timeout
+            recognizer.operation_timeout = None  # Use system default for listening
             
-            # Play a "start listening" beep - higher pitch
-            play_beep(frequency=1200, duration=0.3, volume=0.3)
+            # Set a longer timeout and phrase_time_limit for listen
+            audio = recognizer.listen(audio_source, timeout=10, phrase_time_limit=5)
+            
+            # Check if cancel was requested during recording
+            if cancel_recording or recognizer.should_cancel:
+                print("\nRecording cancelled by user")
+                if IS_RPI:
+                    led_control.blink(LISTENING_LED, LED_RED, 1)
+                speak_text("Recording cancelled.")
+                # Set a longer cooldown after cancellation
+                last_cancel_time = time.time() + 1.0  # Add extra cooldown time
+                return
+            
+            # Play an "end listening" beep - lower pitch
+            play_beep(frequency=800, duration=0.3, volume=0.3)
+            
+            print("Recognizing...")
+            # Set a longer timeout for recognition process
+            recognizer.operation_timeout = 30.0
             
             try:
-                # Make sure recognizer has reasonable default timeout
-                recognizer.operation_timeout = None  # Use system default for listening
+                text = recognizer.recognize_google(audio)
+                print(f"Recognized: {text}")
                 
-                # Set a longer timeout and phrase_time_limit for listen
-                audio = recognizer.listen(source, timeout=10, phrase_time_limit=5)
-                
-                # Check if cancel was requested during recording
-                if cancel_recording or recognizer.should_cancel:
-                    print("\nRecording cancelled by user")
-                    if IS_RPI:
-                        led_control.blink(LISTENING_LED, LED_RED, 1)
-                    speak_text("Recording cancelled.")
-                    # Set a longer cooldown after cancellation
-                    last_cancel_time = time.time() + 1.0  # Add extra cooldown time
-                    return
-                
-                # Play an "end listening" beep - lower pitch
-                play_beep(frequency=800, duration=0.3, volume=0.3)
-                
-                print("Recognizing...")
-                # Set a longer timeout for recognition process
-                recognizer.operation_timeout = 30.0
-                
-                try:
-                    text = recognizer.recognize_google(audio)
-                    print(f"Recognized: {text}")
-                    
-                    stop_prompt = extract_stop_prompt(text)
-                    if stop_prompt:
-                        speak_text("Stopping DuneWeaver execution...")
-                        stop_execution()
-                    else:
-                        # Extract drawing prompt if present
-                        draw_prompt = extract_draw_prompt(text)
-                        if draw_prompt:
-                            speak_text(f"I'll draw {draw_prompt}")
-                            print(f"Generating image for: {draw_prompt}")
-                            
-                            if IS_RPI:
-                                led_control.set_color(LISTENING_LED, LED_ORANGE)
-                            
-                            # Generate image using Gemini
-                            image = generate_image_with_gemini(f"Draw an image of the following: {draw_prompt}. But make it a simple black silhouette on a white background, with very minimal detail and no additional content in the image, so I can use it for a computer icon.")
-                            
-                            if image:
-                                # Convert image to sand pattern
-                                try:
-                                    print("Converting image to sand pattern...")
-                                    image2sand = Image2Sand()
-                                    
-                                    # Convert PIL Image to OpenCV format (numpy array)
-                                    img_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                                    
-                                    # Configure options for sand pattern generation
-                                    options = {
-                                        'epsilon': 0.5,  # Controls point density
-                                        'contour_mode': 'Tree',  # Use tree mode for better pattern detection
-                                        'is_loop': True,  # Create continuous patterns
-                                        'minimize_jumps': True,  # Optimize path to minimize jumps
-                                        'output_format': 2,  # Use .thr format for Dune Weaver
-                                        'max_points': 300  # Limit number of points for smooth operation
-                                    }
-                                    
-                                    # Process the image directly and generate coordinates
-                                    result = image2sand.process_image(img_array, options)
-                                    
-                                    # Save the pattern
-                                    pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
-                                    with open(pattern_path, 'w') as f:
-                                        f.write(result['formatted_coords'])
-                                    
-                                    print(f"Sand pattern saved to: {pattern_path}")
-                                    print(f"Number of points in pattern: {result['point_count']}")
-                                    
-                                    if IS_RPI:
-                                        led_control.blink(LISTENING_LED, LED_GREEN, 2)
-                                    
-                                    uploadResponse = upload_theta_rho(pattern_path)
-                                    # check if response has a "success" key and if it's true
-                                    if "success" in uploadResponse and uploadResponse["success"]:
-                                        theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
-                                        runResponse = run_theta_rho(theta_rho_file)
-                                        if "success" in runResponse and runResponse["success"]:
-                                            speak_text(f"Weaving the dunes for: {draw_prompt}")
-                                        else:
-                                            print(f"Error running theta_rho: {runResponse['detail']}")
-                                            speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
-                                    else:
-                                        print(f"Error uploading theta_rho: {uploadResponse['detail']}")
-                                        speak_text("Sorry, I couldn't upload the pattern to DuneWeaver.")
-
-                                    
-                                except Exception as e:
-                                    print(f"Error converting image to sand pattern: {e}")
-                                    if IS_RPI:
-                                        led_control.blink(LISTENING_LED, LED_RED, 2)
-                                    speak_text("Sorry, I couldn't convert the image to a sand pattern.")
+                stop_prompt = extract_stop_prompt(text)
+                if stop_prompt:
+                    speak_text("Stopping DuneWeaver execution...")
+                    stop_execution()
+                else:
+                    # Extract drawing prompt if present
+                    draw_prompt = extract_draw_prompt(text)
+                    if draw_prompt:
+                        speak_text(f"I'll draw {draw_prompt}")
+                        print(f"Generating image for: {draw_prompt}")
+                        
+                        if IS_RPI:
+                            led_control.set_color(LISTENING_LED, LED_ORANGE)
+                        
+                        # Generate image using Gemini
+                        image = generate_image_with_gemini(f"Draw an image of the following: {draw_prompt}. But make it a simple black silhouette on a white background, with very minimal detail and no additional content in the image, so I can use it for a computer icon.")
+                        
+                        if image:
+                            # Convert image to sand pattern
+                            try:
+                                print("Converting image to sand pattern...")
+                                image2sand = Image2Sand()
                                 
-                            else:
+                                # Convert PIL Image to OpenCV format (numpy array)
+                                img_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                                
+                                # Configure options for sand pattern generation
+                                options = {
+                                    'epsilon': 0.5,  # Controls point density
+                                    'contour_mode': 'Tree',  # Use tree mode for better pattern detection
+                                    'is_loop': True,  # Create continuous patterns
+                                    'minimize_jumps': True,  # Optimize path to minimize jumps
+                                    'output_format': 2,  # Use .thr format for Dune Weaver
+                                    'max_points': 300  # Limit number of points for smooth operation
+                                }
+                                
+                                # Process the image directly and generate coordinates
+                                result = image2sand.process_image(img_array, options)
+                                
+                                # Save the pattern
+                                pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
+                                with open(pattern_path, 'w') as f:
+                                    f.write(result['formatted_coords'])
+                                
+                                print(f"Sand pattern saved to: {pattern_path}")
+                                print(f"Number of points in pattern: {result['point_count']}")
+                                
+                                if IS_RPI:
+                                    led_control.blink(LISTENING_LED, LED_GREEN, 2)
+                                
+                                uploadResponse = upload_theta_rho(pattern_path)
+                                # check if response has a "success" key and if it's true
+                                if "success" in uploadResponse and uploadResponse["success"]:
+                                    theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
+                                    runResponse = run_theta_rho(theta_rho_file)
+                                    if "success" in runResponse and runResponse["success"]:
+                                        speak_text(f"Weaving the dunes for: {draw_prompt}")
+                                    else:
+                                        print(f"Error running theta_rho: {runResponse['detail']}")
+                                        speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
+                                else:
+                                    print(f"Error uploading theta_rho: {uploadResponse['detail']}")
+                                    speak_text("Sorry, I couldn't upload the pattern to DuneWeaver.")
+
+                                
+                            except Exception as e:
+                                print(f"Error converting image to sand pattern: {e}")
                                 if IS_RPI:
                                     led_control.blink(LISTENING_LED, LED_RED, 2)
-                                speak_text("Sorry, I couldn't generate the image.")
+                                speak_text("Sorry, I couldn't convert the image to a sand pattern.")
+                            
                         else:
-                            speak_text("Sorry, I can only weave dunes. Ask me to draw something.")
+                            if IS_RPI:
+                                led_control.blink(LISTENING_LED, LED_RED, 2)
+                            speak_text("Sorry, I couldn't generate the image.")
+                    else:
+                        speak_text("Sorry, I can only weave dunes. Ask me to draw something.")
 
-                except sr.UnknownValueError:
-                    print("Could not understand the audio")
-                    # Play an "error" beep - low pitch
-                    play_beep(frequency=300, duration=0.2, volume=0.3)
-                    
-                    if IS_RPI:
-                        led_control.blink(LISTENING_LED, LED_RED, 2)
-                    speak_text("Sorry, I couldn't understand that.")
-                    
-                except sr.RequestError as e:
-                    print(f"Could not request results from Google Speech Recognition service; {e}")
-                    # Play an "error" beep - low pitch
-                    play_beep(frequency=300, duration=0.2, volume=0.3)
-                    
-                    if IS_RPI:
-                        led_control.blink(LISTENING_LED, LED_RED, 2)
-                    speak_text("Sorry, there was an error with speech recognition.")
-
-            except sr.WaitTimeoutError:
-                print("No speech detected within timeout period")
-                # Play a "timeout" beep - two short low beeps
-                play_beep(frequency=500, duration=0.3, volume=0.3)
-                time.sleep(0.1)
-                play_beep(frequency=500, duration=0.3, volume=0.3)
+            except sr.UnknownValueError:
+                print("Could not understand the audio")
+                # Play an "error" beep - low pitch
+                play_beep(frequency=300, duration=0.2, volume=0.3)
                 
                 if IS_RPI:
-                    led_control.blink(LISTENING_LED, LED_ORANGE, 1)
-                speak_text("I didn't hear anything. Please try again.")
+                    led_control.blink(LISTENING_LED, LED_RED, 2)
+                speak_text("Sorry, I couldn't understand that.")
+                
+            except sr.RequestError as e:
+                print(f"Could not request results from Google Speech Recognition service; {e}")
+                # Play an "error" beep - low pitch
+                play_beep(frequency=300, duration=0.2, volume=0.3)
+                
+                if IS_RPI:
+                    led_control.blink(LISTENING_LED, LED_RED, 2)
+                speak_text("Sorry, there was an error with speech recognition.")
+
+        except sr.WaitTimeoutError:
+            print("No speech detected within timeout period")
+            # Play a "timeout" beep - two short low beeps
+            play_beep(frequency=500, duration=0.3, volume=0.3)
+            time.sleep(0.1)
+            play_beep(frequency=500, duration=0.3, volume=0.3)
             
-            except Exception as e:
-                if not cancel_recording:
-                    print(f"Error during speech recognition: {e}")
-                    # Play an "error" beep - low pitch
-                    play_beep(frequency=300, duration=0.2, volume=0.3)
-                    
-                    if IS_RPI:
-                        led_control.blink(LISTENING_LED, LED_RED, 2)
-                    speak_text("Sorry, an error occurred.")
+            if IS_RPI:
+                led_control.blink(LISTENING_LED, LED_ORANGE, 1)
+            speak_text("I didn't hear anything. Please try again.")
+        
+        except Exception as e:
+            if not cancel_recording:
+                print(f"Error during speech recognition: {e}")
+                # Play an "error" beep - low pitch
+                play_beep(frequency=300, duration=0.2, volume=0.3)
+                
+                if IS_RPI:
+                    led_control.blink(LISTENING_LED, LED_RED, 2)
+                speak_text("Sorry, an error occurred.")
     
     finally:
         # Ensure cancel flag is reset
@@ -669,12 +682,20 @@ def record_and_transcribe():
 
 def cleanup():
     """Clean up resources"""
-    global running
+    global running, audio_source
     running = False
     
     print("Cleaning up resources...")
     
     try:
+        # Properly close the audio source if it's open
+        if audio_source is not None:
+            try:
+                microphone.__exit__(None, None, None)
+                print("Microphone stream closed")
+            except Exception as e:
+                print(f"Error closing microphone stream: {e}")
+        
         if IS_RPI:
             # Turn off all LEDs first
             for i in range(NUM_LEDS):
@@ -733,7 +754,7 @@ def startup_animation():
         print(f"Error in startup animation: {e}")
 
 def main():
-    global running, startup_animation_running, cancel_recording, last_cancel_time
+    global running, startup_animation_running, cancel_recording, last_cancel_time, audio_source
     
     # Register signal handlers
     signal.signal(signal.SIGINT, signal_handler)
@@ -768,11 +789,12 @@ def main():
             # Give the startup animation some time to run before proceeding
             time.sleep(2)
         
-        # Initialize microphone and adjust for ambient noise
+        # Initialize microphone and create a persistent audio source
+        print("Initializing microphone and creating audio stream...")
+        audio_source = microphone.__enter__()
         print("Adjusting for ambient noise...")
-        with microphone as source:
-            recognizer.adjust_for_ambient_noise(source, duration=2)
-        print("Microphone initialized")
+        recognizer.adjust_for_ambient_noise(audio_source, duration=2)
+        print("Microphone initialized and ready")
         
         # Stop the startup animation
         print("Stopping startup animation...")
@@ -799,8 +821,7 @@ def main():
         
         # Play startup sound and greeting
         #time.sleep(0.5)  # Brief pause before greeting
-        speak_text("Shall we weave some dunes?")
-        speak_text("Press the button and wait for the beep.")
+        speak_text("Shall we weave some dunes; Press the button and wait for the beep.")
         
         while running:
             if IS_RPI:
