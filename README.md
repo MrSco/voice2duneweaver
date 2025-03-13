@@ -80,6 +80,49 @@ Voice2DuneWeaver is a voice-controlled application that generates sand art patte
    - "Draw a geometric pattern with waves"
    - "Draw a minimalist landscape"
 
+## Running as a Service
+
+If you want Voice2DuneWeaver to start automatically on boot and run in the background, you can set it up as a service.
+
+### Linux/Raspberry Pi
+
+1. Create a systemd service file:
+   ```
+   sudo nano /etc/systemd/system/voice2duneweaver.service
+   ```
+
+2. Add the following content:
+   ```
+   [Unit]
+   Description=Voice2DuneWeaver Service
+   After=network.target
+
+   [Service]
+   Type=simple
+   User=YOUR_USERNAME
+   WorkingDirectory=/path/to/your/voice2duneweaver
+   ExecStart=/bin/bash -c 'source /path/to/your/voice2duneweaver/.venv/bin/activate && python /path/to/your/voice2duneweaver/app.py'
+   Restart=on-failure
+   RestartSec=5s
+
+   [Install]
+   WantedBy=multi-user.target
+   ```
+
+3. Replace `YOUR_USERNAME` and `/path/to/your/voice2duneweaver` with your actual values
+
+4. Enable and start the service:
+   ```
+   sudo systemctl daemon-reload
+   sudo systemctl enable voice2duneweaver.service
+   sudo systemctl start voice2duneweaver.service
+   ```
+
+5. Check service status:
+   ```
+   sudo systemctl status voice2duneweaver.service
+   ```
+
 ## Raspberry Pi Specific Notes
 
 When running on Raspberry Pi with the ReSpeaker 2-Mic Hat:
@@ -96,6 +139,7 @@ When running on Raspberry Pi with the ReSpeaker 2-Mic Hat:
 - **API key errors**: Verify your Gemini API key is correctly set in the .env file
 - **Connection errors**: Ensure DuneWeaver is running and accessible at the URL specified in your .env file
 - **GPIO errors on Raspberry Pi**: Make sure you have the necessary permissions to access GPIO pins
+- **Service not starting**: Check the service logs using `sudo journalctl -u voice2duneweaver.service` or Event Viewer on Windows
 
 ## License
 
@@ -104,5 +148,4 @@ When running on Raspberry Pi with the ReSpeaker 2-Mic Hat:
 ## Acknowledgments
 
 - This project uses Google's Gemini AI for image generation
-- Pattern generation algorithms adapted from various sources
-- Special thanks to the DuneWeaver project
+- Special thanks to the DuneWeaver project (https://github.com/tuanchris/dune-weaver), and the Image2Sand project (https://github.com/orionwc/image2sand)
