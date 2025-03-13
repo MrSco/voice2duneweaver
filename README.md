@@ -73,7 +73,6 @@ Voice2DuneWeaver is a voice-controlled application that generates sand art patte
 2. Once the application starts, you can use the following voice commands:
    - "Draw a [description]" - Generates and sends a sand pattern
    - "Stop" - Cancels the current operation
-   - "Exit" or "Quit" - Exits the application
 
 3. Examples:
    - "Draw a spiral galaxy"
