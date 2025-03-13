@@ -20,14 +20,6 @@ else
     exit 1
 fi
 
-# Check for pip
-if ! $PYTHON_CMD -m pip --version &>/dev/null; then
-    echo -e "${RED}pip not found! Please install pip for Python 3.${NC}"
-    echo -e "${YELLOW}You can install it with: sudo apt install python3-pip${NC}"
-    exit 1
-fi
-echo -e "${GREEN}Found pip installation.${NC}"
-
 # Detect Raspberry Pi
 IS_RPI=false
 if [ -f /proc/device-tree/model ] && grep -q "raspberry pi" /proc/device-tree/model; then
@@ -70,6 +62,20 @@ if [ $? -ne 0 ]; then
     echo -e "${RED}Failed to activate virtual environment.${NC}"
     exit 1
 fi
+
+# Check for pip in virtual environment
+if ! python -m pip --version &>/dev/null; then
+    echo -e "${RED}pip not found in virtual environment!${NC}"
+    echo -e "${YELLOW}Attempting to install pip in the virtual environment...${NC}"
+    curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+    python get-pip.py
+    rm get-pip.py
+    if ! python -m pip --version &>/dev/null; then
+        echo -e "${RED}Failed to install pip in virtual environment.${NC}"
+        exit 1
+    fi
+fi
+echo -e "${GREEN}Found pip in virtual environment.${NC}"
 
 # Install requirements
 echo -e "${YELLOW}Installing dependencies...${NC}"

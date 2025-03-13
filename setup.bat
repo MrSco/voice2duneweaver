@@ -10,14 +10,6 @@ if %ERRORLEVEL% neq 0 (
 )
 echo Found Python installation.
 
-:: Check for pip
-python -m pip --version > nul 2>&1
-if %ERRORLEVEL% neq 0 (
-    echo pip not found! Please ensure pip is installed with your Python installation.
-    exit /b 1
-)
-echo Found pip installation.
-
 :: Create virtual environment if it doesn't exist
 if not exist .venv (
     echo Creating virtual environment...
@@ -37,6 +29,22 @@ if %ERRORLEVEL% neq 0 (
     echo Failed to activate virtual environment.
     exit /b 1
 )
+
+:: Check for pip in virtual environment
+python -m pip --version > nul 2>&1
+if %ERRORLEVEL% neq 0 (
+    echo pip not found in virtual environment!
+    echo Attempting to install pip in the virtual environment...
+    curl https://bootstrap.pypa.io/get-pip.py -o get-pip.py
+    python get-pip.py
+    del get-pip.py
+    python -m pip --version > nul 2>&1
+    if %ERRORLEVEL% neq 0 (
+        echo Failed to install pip in virtual environment.
+        exit /b 1
+    )
+)
+echo Found pip in virtual environment.
 
 :: Install requirements
 echo Installing dependencies...
