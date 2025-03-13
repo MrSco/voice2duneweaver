@@ -404,6 +404,17 @@ def extract_stop_prompt(text: str) -> Optional[str]:
         return True
     return False
 
+def list_theta_rho_files():
+    """ Do a GET request to the theta_rho API with a 5 second timeout """
+    url = f"{DW_URL}/list_theta_rho_files"
+    response = None
+    try:
+        response = requests.get(url, timeout=5).json()
+    except Exception as e:
+        print(f"Error listing theta_rho files: {e}")
+    finally:
+        return response
+
 def upload_theta_rho(pattern_path: str):
     """ Do a POST request to the theta_rho API """
     url = f"{DW_URL}/upload_theta_rho"
@@ -537,7 +548,6 @@ def record_and_transcribe():
                 print("\nRecording cancelled by user")
                 if IS_RPI:
                     led_control.blink(LISTENING_LED, LED_RED, 1)
-                speak_text("Recording cancelled.")
                 # Set a longer cooldown after cancellation
                 last_cancel_time = time.time() + 1.0  # Add extra cooldown time
                 return
@@ -561,73 +571,87 @@ def record_and_transcribe():
                     # Extract drawing prompt if present
                     draw_prompt = extract_draw_prompt(text)
                     if draw_prompt:
-                        speak_text(f"I'll draw {draw_prompt}")
-                        print(f"Generating image for: {draw_prompt}")
-                        
-                        if IS_RPI:
-                            led_control.set_color(LISTENING_LED, LED_ORANGE)
-                        
-                        # Generate image using Gemini
-                        image = generate_image_with_gemini(f"Draw an image of the following: {draw_prompt}. But make it a simple black silhouette on a white background, with very minimal detail and no additional content in the image, so I can use it for a computer icon.")
-                        
-                        if image:
-                            # Convert image to sand pattern
-                            try:
-                                print("Converting image to sand pattern...")
-                                image2sand = Image2Sand()
-                                
-                                # Convert PIL Image to OpenCV format (numpy array)
-                                img_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                                
-                                # Configure options for sand pattern generation
-                                options = {
-                                    'epsilon': 0.5,  # Controls point density
-                                    'contour_mode': 'Tree',  # Use tree mode for better pattern detection
-                                    'is_loop': True,  # Create continuous patterns
-                                    'minimize_jumps': True,  # Optimize path to minimize jumps
-                                    'output_format': 2,  # Use .thr format for Dune Weaver
-                                    'max_points': 300  # Limit number of points for smooth operation
-                                }
-                                
-                                # Process the image directly and generate coordinates
-                                result = image2sand.process_image(img_array, options)
-                                
-                                # Save the pattern
-                                pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
-                                with open(pattern_path, 'w') as f:
-                                    f.write(result['formatted_coords'])
-                                
-                                print(f"Sand pattern saved to: {pattern_path}")
-                                print(f"Number of points in pattern: {result['point_count']}")
-                                
-                                if IS_RPI:
-                                    led_control.blink(LISTENING_LED, LED_GREEN, 2)
-                                
-                                uploadResponse = upload_theta_rho(pattern_path)
-                                # check if response has a "success" key and if it's true
-                                if "success" in uploadResponse and uploadResponse["success"]:
-                                    theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
-                                    runResponse = run_theta_rho(theta_rho_file)
-                                    if "success" in runResponse and runResponse["success"]:
-                                        speak_text(f"Weaving the dunes for: {draw_prompt}")
+                        pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
+                        theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
+                        theta_rho_files = list_theta_rho_files()
+                        # check our list of theta_rho files. If its none or we already have a match to the theta_rho_file, skip the image generation
+                        if theta_rho_files is None:
+                            print(f"No theta_rho files found")
+                            speak_text("Cannot reach DuneWeaver.")
+                        elif any(theta_rho_file in file for file in theta_rho_files):
+                            print(f"Skipping image generation for: {draw_prompt} because it already exists")
+                            runResponse = run_theta_rho(theta_rho_file)
+                            if "success" in runResponse and runResponse["success"]:
+                                speak_text(f"Weaving the dunes for: {draw_prompt}")
+                            else:
+                                print(f"Error running theta_rho: {runResponse['detail']}")
+                                speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
+                        else:
+                            speak_text(f"I'll generate {draw_prompt}")
+                            print(f"Generating image for: {draw_prompt}")
+                            
+                            if IS_RPI:
+                                led_control.set_color(LISTENING_LED, LED_ORANGE)
+                            # Generate image using Gemini
+                            image = generate_image_with_gemini(f"Draw an image of the following: {draw_prompt}. But make it a simple black silhouette on a white background, with very minimal detail and no additional content in the image, so I can use it for a computer icon.")
+                            
+                            if image:
+                                # Convert image to sand pattern
+                                try:
+                                    print("Converting image to sand pattern...")
+                                    image2sand = Image2Sand()
+                                    
+                                    # Convert PIL Image to OpenCV format (numpy array)
+                                    img_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
+                                    
+                                    # Configure options for sand pattern generation
+                                    options = {
+                                        'epsilon': 0.5,  # Controls point density
+                                        'contour_mode': 'Tree',  # Use tree mode for better pattern detection
+                                        'is_loop': True,  # Create continuous patterns
+                                        'minimize_jumps': True,  # Optimize path to minimize jumps
+                                        'output_format': 2,  # Use .thr format for Dune Weaver
+                                        'max_points': 300  # Limit number of points for smooth operation
+                                    }
+                                    
+                                    # Process the image directly and generate coordinates
+                                    result = image2sand.process_image(img_array, options)
+                                    
+                                    # Save the pattern                                    
+                                    with open(pattern_path, 'w') as f:
+                                        f.write(result['formatted_coords'])
+                                    
+                                    print(f"Sand pattern saved to: {pattern_path}")
+                                    print(f"Number of points in pattern: {result['point_count']}")
+                                    
+                                    if IS_RPI:
+                                        led_control.blink(LISTENING_LED, LED_GREEN, 2)
+                                    
+                                    uploadResponse = upload_theta_rho(pattern_path)
+                                    # check if response has a "success" key and if it's true
+                                    if "success" in uploadResponse and uploadResponse["success"]:
+                                        theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
+                                        runResponse = run_theta_rho(theta_rho_file)
+                                        if "success" in runResponse and runResponse["success"]:
+                                            speak_text(f"Weaving the dunes for: {draw_prompt}")
+                                        else:
+                                            print(f"Error running theta_rho: {runResponse['detail']}")
+                                            speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
                                     else:
-                                        print(f"Error running theta_rho: {runResponse['detail']}")
-                                        speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
-                                else:
-                                    print(f"Error uploading theta_rho: {uploadResponse['detail']}")
-                                    speak_text("Sorry, I couldn't upload the pattern to DuneWeaver.")
+                                        print(f"Error uploading theta_rho: {uploadResponse['detail']}")
+                                        speak_text("Sorry, I couldn't upload the pattern to DuneWeaver.")
 
+                                    
+                                except Exception as e:
+                                    print(f"Error converting image to sand pattern: {e}")
+                                    if IS_RPI:
+                                        led_control.blink(LISTENING_LED, LED_RED, 2)
+                                    speak_text("Sorry, I couldn't convert the image to a sand pattern.")
                                 
-                            except Exception as e:
-                                print(f"Error converting image to sand pattern: {e}")
+                            else:
                                 if IS_RPI:
                                     led_control.blink(LISTENING_LED, LED_RED, 2)
-                                speak_text("Sorry, I couldn't convert the image to a sand pattern.")
-                            
-                        else:
-                            if IS_RPI:
-                                led_control.blink(LISTENING_LED, LED_RED, 2)
-                            speak_text("Sorry, I couldn't generate the image.")
+                                speak_text("Sorry, I couldn't generate the image.")
                     else:
                         speak_text("Sorry, I can only weave dunes. Ask me to draw something.")
 
@@ -688,6 +712,9 @@ def cleanup():
     print("Cleaning up resources...")
     
     try:
+        # Say goodbye before exiting
+        speak_text("The only winning move is not to play.")
+        
         # Properly close the audio source if it's open
         if audio_source is not None:
             try:
@@ -821,7 +848,8 @@ def main():
         
         # Play startup sound and greeting
         #time.sleep(0.5)  # Brief pause before greeting
-        speak_text("Shall we weave some dunes; Press the button and wait for the beep.")
+        speak_text("Greetings Professor Fallken.")
+        speak_text("Shall we weave some dunes? Press the button and wait for the beep.")
         
         while running:
             if IS_RPI:
