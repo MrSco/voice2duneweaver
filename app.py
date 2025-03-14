@@ -376,11 +376,7 @@ def record_and_transcribe():
         play_beep(frequency=1200, duration=0.3, volume=0.3)
         
         try:
-            # Make sure recognizer has reasonable default timeout
-            recognizer.operation_timeout = None  # Use system default for listening
-            
-            # Set a longer timeout and phrase_time_limit for listen
-            audio = recognizer.listen(audio_source)
+            audio = recognizer.listen(audio_source, phrase_time_limit=10)
             
             # Check if cancel was requested during recording
             if cancel_recording or recognizer.should_cancel:
