@@ -1,4 +1,7 @@
 #!/usr/bin/env python3
+import base64
+from io import BytesIO
+import json
 import sys
 from prompt2sand import Prompt2Sand
 import os
@@ -20,25 +23,32 @@ def main():
     # check our list of theta_rho files. If its none or we already have a match to the theta_rho_file, skip the image generation
     if theta_rho_files is None:
         print(f"No theta_rho files found")
-        return "Cannot reach DuneWeaver."
+        result["message"] = "Cannot reach DuneWeaver."
     elif any(theta_rho_file in file for file in theta_rho_files):
         print(f"Skipping image generation for: {prompt} because it already exists")
         runResponse = p2s.run_theta_rho(theta_rho_file)
         if "success" in runResponse and runResponse["success"]:
-            return f"Weaving the dunes for: {prompt}"
+            result["message"] = f"Weaving existing dunes for: {prompt}"
         else:
             print(f"Error running theta_rho: {runResponse['detail']}")
-            return f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
+            result["message"] = f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
     else:
         
         # Process the prompt
         image = p2s.generate_image_with_gemini(prompt)
+
+        result = {
+            "status": "failed",
+            "message": "Failed to generate image",
+            "image_base64": None
+        }
         
         if image:
-            # Save temporary image for debugging (optional)
-            #temp_img_path = "temp_image.png"
-            #image.save(temp_img_path)
-            #print(f"Generated image saved to {temp_img_path}")
+            # Convert the image to base64
+            buffered = BytesIO()
+            image.save(buffered, format="PNG")
+            img_str = base64.b64encode(buffered.getvalue()).decode()
+            result["image_base64"] = img_str
             
             # Convert to sand pattern
             pattern = p2s.convert_image_to_sand(image)
@@ -57,17 +67,17 @@ def main():
                     theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
                     runResponse = p2s.run_theta_rho(theta_rho_file)
                     if "success" in runResponse and runResponse["success"]:
-                        return f"Weaving the dunes for: {prompt}"
+                        result["message"] = f"Weaving the dunes for: {prompt}"
                     else:
-                        print(f"Error running theta_rho: {runResponse['detail']}")
-                        return f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
+                        result["message"] = f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
                 else:
-                    print(f"Error uploading theta_rho: {uploadResponse['detail']}")
-                    return f"Sorry, I couldn't upload the pattern to DuneWeaver. {uploadResponse['detail']}"
+                    result["message"] = f"Sorry, I couldn't upload the pattern to DuneWeaver. {uploadResponse['detail']}"
             else:
-                return "Failed to convert image to sand pattern"
+                result["message"] = "Failed to convert image to sand pattern"
         else:
-            return "Failed to generate image"
+            result["message"] = "Failed to generate image"
+    print(json.dumps(result))
+    return result
 
 if __name__ == "__main__":
     result = main()
