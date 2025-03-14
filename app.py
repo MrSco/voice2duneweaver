@@ -207,19 +207,6 @@ class LEDControlRPI:
                 self.leds.set_pixel(i, 0, 0, 0)
             self.leds.show()
             
-            # Test by briefly flashing all LEDs
-            print("Testing all LEDs with brief flash...")
-            # Flash red, green, blue in sequence
-            for color in [(255, 0, 0), (0, 255, 0), (0, 0, 255)]:
-                for i in range(NUM_LEDS):
-                    self.leds.set_pixel(i, color[0], color[1], color[2])
-                self.leds.show()
-                time.sleep(0.1)
-                for i in range(NUM_LEDS):
-                    self.leds.set_pixel(i, 0, 0, 0)
-                self.leds.show()
-                time.sleep(0.1)
-            
             print("LED power and initialization successful")
         except Exception as e:
             print(f"ERROR turning on LEDs: {e}")
@@ -256,43 +243,6 @@ class LEDControlRPI:
 
 # Initialize LED controller based on platform
 led_control = LEDControlRPI(led_brightness=LED_BRIGHTNESS) if IS_RPI else LEDControlDummy()
-
-# Run a direct test of the APA102 LEDs if we're on an RPI
-if IS_RPI:
-    try:
-        print("\n=== RUNNING DIRECT APA102 LED TEST ===")
-        # Ensure the power pin is on
-        power_pin = gpiozero.LED(LEDS_GPIO, active_high=False)
-        power_pin.on()
-        time.sleep(0.5)  # Wait for power to stabilize
-        
-        # Create a direct APA102 instance for testing
-        test_leds = APA102(num_led=NUM_LEDS, global_brightness=31)  # Full brightness for test
-        
-        # Flash each LED in red, green, blue sequence
-        for color_name, color in [("RED", (255, 0, 0)), ("GREEN", (0, 255, 0)), ("BLUE", (0, 0, 255))]:
-            print(f"Testing all LEDs with {color_name}")
-            for i in range(NUM_LEDS):
-                # Clear all LEDs
-                for j in range(NUM_LEDS):
-                    test_leds.set_pixel(j, 0, 0, 0)
-                test_leds.show()
-                
-                # Set the current LED
-                test_leds.set_pixel(i, color[0], color[1], color[2])
-                test_leds.show()
-                print(f"  LED {i} should now be {color_name}")
-                time.sleep(0.5)
-        
-        # Turn all LEDs off
-        for i in range(NUM_LEDS):
-            test_leds.set_pixel(i, 0, 0, 0)
-        test_leds.show()
-        test_leds.cleanup()
-        
-        print("=== DIRECT LED TEST COMPLETE ===\n")
-    except Exception as e:
-        print(f"Error during direct LED test: {e}")
 
 def check_cancel_input():
     """Check if cancel input (button/Enter) was triggered"""
@@ -467,6 +417,7 @@ def record_and_transcribe():
                     # Extract drawing prompt if present
                     draw_prompt = p2s.extract_draw_prompt(text)
                     if draw_prompt:
+                        print(f"Extracted drawing prompt: {draw_prompt}")
                         pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
                         theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
                         theta_rho_files = p2s.list_theta_rho_files()

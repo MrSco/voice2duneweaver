@@ -86,11 +86,11 @@ class Prompt2Sand:
         """Extract the drawing prompt from the transcribed text"""
         text = text.lower()
         prompt = None
-        # using a regex, check for draw, create, make, generate, etc. with optional articles after the keyword (a, an, the, etc.)
+        # using a regex, check for draw, create, make, generate, etc.
         # capture the keyword and everything after it
         match = re.search(r"\b(draw|create|make|generate)\b(.*)", text)
         if match:
-            prompt = match.group(1)
+            prompt = match.group(2).strip()  # Get the content after the command and strip whitespace
         else:
             prompt = text.strip()
         return prompt
