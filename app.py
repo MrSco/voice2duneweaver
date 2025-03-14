@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import os
+import re
 import time
 import signal
 import threading
@@ -390,9 +391,11 @@ def extract_draw_prompt(text: str) -> Optional[str]:
     """Extract the drawing prompt from the transcribed text"""
     text = text.lower()
     prompt = None
-    if "draw" in text:
-        # Get everything after the word "draw"
-        prompt = text.split("draw", 1)[1].strip()
+    # using a regex, check for draw, create, make, generate, etc. with optional articles after the keyword (a, an, the, etc.)
+    # capture the keyword and everything after it
+    match = re.search(r"\b(draw|create|make|generate)\b(.*)", text)
+    if match:
+        prompt = match.group(1)
     else:
         prompt = text.strip()
     return prompt
@@ -400,7 +403,27 @@ def extract_draw_prompt(text: str) -> Optional[str]:
 def extract_stop_prompt(text: str) -> Optional[str]:
     """Extract the stop prompt from the transcribed text"""
     text = text.lower()
-    if "stop" in text:
+    # using a regex, check for stop, exit, quit, etc.
+    match = re.search(r"\b(stop|exit|quit)\b", text)
+    if match:
+        return True
+    return False
+
+def extract_shutdown_prompt(text: str) -> Optional[str]:
+    """Extract the shutdown prompt from the transcribed text"""
+    text = text.lower()
+    # using a regex, check for shutdown, power off, etc.
+    match = re.search(r"\b(shutdown|power off|turn off)\b", text)
+    if match:
+        return True
+    return False
+
+def extract_restart_prompt(text: str) -> Optional[str]:
+    """Extract the restart prompt from the transcribed text"""
+    text = text.lower()
+    # using a regex, check for restart, reboot, etc.
+    match = re.search(r"\b(restart|reboot)\b", text)
+    if match:
         return True
     return False
 
@@ -564,9 +587,17 @@ def record_and_transcribe():
                 print(f"Recognized: {text}")
                 
                 stop_prompt = extract_stop_prompt(text)
+                shutdown_prompt = extract_shutdown_prompt(text)
+                restart_prompt = extract_restart_prompt(text)
                 if stop_prompt:
                     speak_text("Stopping DuneWeaver execution...")
                     stop_execution()
+                elif shutdown_prompt and IS_RPI:
+                    speak_text("Shutting down...")
+                    os.system("sudo shutdown now")
+                elif restart_prompt and IS_RPI:
+                    speak_text("Restarting...")
+                    os.system("sudo reboot")
                 else:
                     # Extract drawing prompt if present
                     draw_prompt = extract_draw_prompt(text)
