@@ -16,6 +16,12 @@ def main():
     p2s = Prompt2Sand()
     PATTERNS_DIR = "patterns"
 
+    result = {
+        "status": "failed",
+        "message": "Failed to parse prompt",
+        "image_base64": None
+    }
+
     #print(f"Processing prompt: {prompt}")
     pattern_path = os.path.join(PATTERNS_DIR, f"{prompt.replace(' ', '_')}.thr")
     theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
@@ -33,16 +39,9 @@ def main():
             #print(f"Error running theta_rho: {runResponse['detail']}")
             result["message"] = f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
     else:
-        
         # Process the prompt
         image = p2s.generate_image_with_gemini(prompt)
 
-        result = {
-            "status": "failed",
-            "message": "Failed to generate image",
-            "image_base64": None
-        }
-        
         if image:
             # Convert the image to base64
             buffered = BytesIO()
