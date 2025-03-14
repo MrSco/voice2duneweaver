@@ -42,7 +42,7 @@ def main():
         draw_prompt = p2s.extract_draw_prompt(prompt)
         if draw_prompt:
             print(f"Extracted drawing prompt: {draw_prompt}")
-            pattern_path = os.path.join(PATTERNS_DIR, f"{prompt.replace(' ', '_')}.thr")
+            pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
             theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
             theta_rho_files = p2s.list_theta_rho_files()
             # check our list of theta_rho files. If its none or we already have a match to the theta_rho_file, skip the image generation
@@ -50,17 +50,17 @@ def main():
                 print(f"No theta_rho files found")
                 result["message"] = "Cannot reach DuneWeaver."
             elif any(theta_rho_file in file for file in theta_rho_files):
-                print(f"Skipping image generation for: {prompt} because it already exists")
+                print(f"Skipping image generation for: {draw_prompt} because it already exists")
                 runResponse = p2s.run_theta_rho(theta_rho_file)
                 if "success" in runResponse and runResponse["success"]:
                     result["status"] = "success"
-                    result["message"] = f"Weaving existing dunes for: {prompt}"
+                    result["message"] = f"Weaving existing dunes for: {draw_prompt}"
                 else:
                     print(f"Error running theta_rho: {runResponse['detail']}")
                     result["message"] = f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
             else:
-                # Process the prompt
-                image = p2s.generate_image_with_gemini(prompt)
+                # Process the draw_prompt
+                image = p2s.generate_image_with_gemini(draw_prompt)
 
                 if image:
                     # Convert the image to base64
@@ -74,7 +74,6 @@ def main():
                     
                     if pattern:
                         # Save pattern to file
-                        pattern_path = f"{prompt.replace(' ', '_')}.thr"
                         with open(pattern_path, 'w') as f:
                             f.write(pattern['formatted_coords'])
                         print(f"Sand pattern saved to {pattern_path}")
