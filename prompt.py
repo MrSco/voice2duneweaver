@@ -47,7 +47,7 @@ def main():
                 # Save pattern to file
                 pattern_path = f"{prompt.replace(' ', '_')}.thr"
                 with open(pattern_path, 'w') as f:
-                    f.write(pattern)
+                    f.write(pattern['formatted_coords'])
                 print(f"Sand pattern saved to {pattern_path}")
                 
                 # Upload and run on DuneWeaver
