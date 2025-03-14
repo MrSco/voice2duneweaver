@@ -34,6 +34,7 @@ def main():
         #print(f"Skipping image generation for: {prompt} because it already exists")
         runResponse = p2s.run_theta_rho(theta_rho_file)
         if "success" in runResponse and runResponse["success"]:
+            result["status"] = "success"
             result["message"] = f"Weaving existing dunes for: {prompt}"
         else:
             #print(f"Error running theta_rho: {runResponse['detail']}")
@@ -66,6 +67,7 @@ def main():
                     theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
                     runResponse = p2s.run_theta_rho(theta_rho_file)
                     if "success" in runResponse and runResponse["success"]:
+                        result["status"] = "success"
                         result["message"] = f"Weaving the dunes for: {prompt}"
                     else:
                         result["message"] = f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
