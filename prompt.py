@@ -16,21 +16,21 @@ def main():
     p2s = Prompt2Sand()
     PATTERNS_DIR = "patterns"
 
-    print(f"Processing prompt: {prompt}")
+    #print(f"Processing prompt: {prompt}")
     pattern_path = os.path.join(PATTERNS_DIR, f"{prompt.replace(' ', '_')}.thr")
     theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
     theta_rho_files = p2s.list_theta_rho_files()
     # check our list of theta_rho files. If its none or we already have a match to the theta_rho_file, skip the image generation
     if theta_rho_files is None:
-        print(f"No theta_rho files found")
+        #print(f"No theta_rho files found")
         result["message"] = "Cannot reach DuneWeaver."
     elif any(theta_rho_file in file for file in theta_rho_files):
-        print(f"Skipping image generation for: {prompt} because it already exists")
+        #print(f"Skipping image generation for: {prompt} because it already exists")
         runResponse = p2s.run_theta_rho(theta_rho_file)
         if "success" in runResponse and runResponse["success"]:
             result["message"] = f"Weaving existing dunes for: {prompt}"
         else:
-            print(f"Error running theta_rho: {runResponse['detail']}")
+            #print(f"Error running theta_rho: {runResponse['detail']}")
             result["message"] = f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
     else:
         
@@ -58,7 +58,7 @@ def main():
                 pattern_path = f"{prompt.replace(' ', '_')}.thr"
                 with open(pattern_path, 'w') as f:
                     f.write(pattern['formatted_coords'])
-                print(f"Sand pattern saved to {pattern_path}")
+                #print(f"Sand pattern saved to {pattern_path}")
                 
                 # Upload and run on DuneWeaver
                 uploadResponse = p2s.upload_theta_rho(pattern_path)
@@ -76,7 +76,6 @@ def main():
                 result["message"] = "Failed to convert image to sand pattern"
         else:
             result["message"] = "Failed to generate image"
-    print(json.dumps(result))
     return result
 
 if __name__ == "__main__":
