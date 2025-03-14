@@ -767,7 +767,7 @@ def startup_animation():
             led_num, color = STARTUP_SEQUENCE[sequence_index]
             
             # Light up the LED
-            print(f"Animation: Lighting LED {led_num} with color {color}")
+            #print(f"Animation: Lighting LED {led_num} with color {color}")
             led_control.set_color(led_num, color)
             time.sleep(0.2)
             led_control.set_color(led_num, LED_OFF)
