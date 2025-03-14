@@ -93,6 +93,9 @@ class Prompt2Sand:
             prompt = match.group(2).strip()  # Get the content after the command and strip whitespace
         else:
             prompt = text.strip()
+            
+        # Strip articles like "a", "an", "the" from the beginning of the prompt
+        prompt = re.sub(r"^\s*(a|an|the)\s+", "", prompt)
         return prompt
     
     def extract_stop_prompt(self, text: str) -> bool:
