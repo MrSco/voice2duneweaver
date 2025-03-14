@@ -29,12 +29,15 @@ def main():
     shutdown_prompt = p2s.extract_shutdown_prompt(prompt)
     restart_prompt = p2s.extract_restart_prompt(prompt)
     if stop_prompt:
+        result["status"] = "success"
         result["message"] = "Stopping DuneWeaver execution..."
         p2s.stop_execution()
     elif shutdown_prompt and IS_RPI:
+        result["status"] = "success"
         result["message"] = "Shutting down..."
         os.system("sudo shutdown now")
     elif restart_prompt and IS_RPI:
+        result["status"] = "success"
         result["message"] = "Restarting..."
         os.system("sudo reboot")
     else:
