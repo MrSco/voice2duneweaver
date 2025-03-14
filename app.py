@@ -380,7 +380,7 @@ def record_and_transcribe():
             recognizer.operation_timeout = None  # Use system default for listening
             
             # Set a longer timeout and phrase_time_limit for listen
-            audio = recognizer.listen(audio_source, timeout=10, phrase_time_limit=5)
+            audio = recognizer.listen(audio_source)
             
             # Check if cancel was requested during recording
             if cancel_recording or recognizer.should_cancel:
