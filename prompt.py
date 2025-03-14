@@ -19,7 +19,7 @@ def main():
     result = {
         "status": "failed",
         "message": "Failed to parse prompt",
-        "image_base64": None
+        "image_base64": ""
     }
 
     #print(f"Processing prompt: {prompt}")
