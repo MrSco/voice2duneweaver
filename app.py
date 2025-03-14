@@ -1,37 +1,19 @@
 #!/usr/bin/env python3
 import os
-import re
 import time
 import signal
 import threading
-import datetime
+from typing import Tuple
 import speech_recognition as sr
 import pyttsx3
 import platform
-from dotenv import load_dotenv
-from typing import Optional, Tuple
-from google import genai
-from google.genai import types
-from PIL import Image
-from io import BytesIO
-from image2sand import Image2Sand
-import cv2
-import numpy as np
-import requests
 import pyaudio
 import math
 import struct
 import array
+from prompt2sand import Prompt2Sand
 
-# Load environment variables from .env file
-load_dotenv()
-
-# DuneWeaver settings
-DW_URL = os.getenv('DW_URL')
-
-# Gemini API settings
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') 
-genai_client = genai.Client(api_key=GEMINI_API_KEY)
+p2s = Prompt2Sand()
 
 # Platform detection
 IS_RPI = platform.system() == "Linux" and os.path.exists('/proc/device-tree/model') and 'raspberry pi' in open('/proc/device-tree/model').read().lower()
@@ -365,123 +347,6 @@ def check_cancel_input():
     
     return False
 
-def generate_image_with_gemini(prompt: str) -> Optional[Image.Image]:
-    """Generate an image using Gemini 2.0 Flash Experimental"""
-    try:
-        print(f"Generating image: {prompt}")
-        response = genai_client.models.generate_content(
-            model="models/gemini-2.0-flash-exp",
-            contents=prompt,
-            config=types.GenerateContentConfig(response_modalities=['Text', 'Image'])
-        )
-        
-        # Extract the image from the response
-        for part in response.candidates[0].content.parts:
-            if part.inline_data is not None:
-                return Image.open(BytesIO(part.inline_data.data))
-            elif part.text is not None:
-                print(f"Model response: {part.text}")
-        
-        return None
-    except Exception as e:
-        print(f"Error generating image: {e}")
-        return None
-
-def extract_draw_prompt(text: str) -> Optional[str]:
-    """Extract the drawing prompt from the transcribed text"""
-    text = text.lower()
-    prompt = None
-    # using a regex, check for draw, create, make, generate, etc. with optional articles after the keyword (a, an, the, etc.)
-    # capture the keyword and everything after it
-    match = re.search(r"\b(draw|create|make|generate)\b(.*)", text)
-    if match:
-        prompt = match.group(1)
-    else:
-        prompt = text.strip()
-    return prompt
-
-def extract_stop_prompt(text: str) -> Optional[str]:
-    """Extract the stop prompt from the transcribed text"""
-    text = text.lower()
-    # using a regex, check for stop, exit, quit, etc.
-    match = re.search(r"\b(stop|exit|quit)\b", text)
-    if match:
-        return True
-    return False
-
-def extract_shutdown_prompt(text: str) -> Optional[str]:
-    """Extract the shutdown prompt from the transcribed text"""
-    text = text.lower()
-    # using a regex, check for shutdown, power off, etc.
-    match = re.search(r"\b(shutdown|power off|turn off)\b", text)
-    if match:
-        return True
-    return False
-
-def extract_restart_prompt(text: str) -> Optional[str]:
-    """Extract the restart prompt from the transcribed text"""
-    text = text.lower()
-    # using a regex, check for restart, reboot, etc.
-    match = re.search(r"\b(restart|reboot)\b", text)
-    if match:
-        return True
-    return False
-
-def list_theta_rho_files():
-    """ Do a GET request to the theta_rho API with a 5 second timeout """
-    url = f"{DW_URL}/list_theta_rho_files"
-    response = None
-    try:
-        response = requests.get(url, timeout=5).json()
-    except Exception as e:
-        print(f"Error listing theta_rho files: {e}")
-    finally:
-        return response
-
-def upload_theta_rho(pattern_path: str):
-    """ Do a POST request to the theta_rho API """
-    url = f"{DW_URL}/upload_theta_rho"
-    response = None
-    with open(pattern_path, 'rb') as f:
-        files = {'file': f}
-        try:
-            response = requests.post(url, files=files).json()
-        except Exception as e:
-            print(f"Error uploading theta_rho: {e}")
-            response = {"detail": str(e)}
-        finally:
-            return response
-
-def run_theta_rho(pattern_path: str):
-    """ Do a POST request to the theta_rho API """
-    url = f"{DW_URL}/run_theta_rho"
-    response = None
-    data = {
-        'file_name': pattern_path,
-        'pre_execution': 'adaptive'
-    }
-    print(f"Running theta_rho with data: {data}")
-    try:
-        response = requests.post(url, json=data).json()
-        #print(response.json())
-    except Exception as e:
-        print(f"Error running theta_rho: {e}")
-        response = {"detail": str(e)}
-    finally:
-        return response
-
-def stop_execution():
-    url = f"{DW_URL}/stop_execution"
-    print(f"Stopping DuneWeaver execution...")
-    response = None
-    try:
-        response = requests.post(url).json()
-    except Exception as e:
-        print(f"Error stopping DuneWeaver execution: {e}")
-        response = {"detail": str(e)}
-    finally:
-        return response
-
 def play_beep(frequency=1000, duration=0.2, volume=0.5):
     """
     Play a beep sound using pyaudio
@@ -586,12 +451,12 @@ def record_and_transcribe():
                 text = recognizer.recognize_google(audio)
                 print(f"Recognized: {text}")
                 
-                stop_prompt = extract_stop_prompt(text)
-                shutdown_prompt = extract_shutdown_prompt(text)
-                restart_prompt = extract_restart_prompt(text)
+                stop_prompt = p2s.extract_stop_prompt(text)
+                shutdown_prompt = p2s.extract_shutdown_prompt(text)
+                restart_prompt = p2s.extract_restart_prompt(text)
                 if stop_prompt:
                     speak_text("Stopping DuneWeaver execution...")
-                    stop_execution()
+                    p2s.stop_execution()
                 elif shutdown_prompt and IS_RPI:
                     speak_text("Shutting down...")
                     os.system("sudo shutdown now")
@@ -600,18 +465,18 @@ def record_and_transcribe():
                     os.system("sudo reboot")
                 else:
                     # Extract drawing prompt if present
-                    draw_prompt = extract_draw_prompt(text)
+                    draw_prompt = p2s.extract_draw_prompt(text)
                     if draw_prompt:
                         pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
                         theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
-                        theta_rho_files = list_theta_rho_files()
+                        theta_rho_files = p2s.list_theta_rho_files()
                         # check our list of theta_rho files. If its none or we already have a match to the theta_rho_file, skip the image generation
                         if theta_rho_files is None:
                             print(f"No theta_rho files found")
                             speak_text("Cannot reach DuneWeaver.")
                         elif any(theta_rho_file in file for file in theta_rho_files):
                             print(f"Skipping image generation for: {draw_prompt} because it already exists")
-                            runResponse = run_theta_rho(theta_rho_file)
+                            runResponse = p2s.run_theta_rho(theta_rho_file)
                             if "success" in runResponse and runResponse["success"]:
                                 speak_text(f"Weaving the dunes for: {draw_prompt}")
                             else:
@@ -624,29 +489,12 @@ def record_and_transcribe():
                             if IS_RPI:
                                 led_control.set_color(LISTENING_LED, LED_ORANGE)
                             # Generate image using Gemini
-                            image = generate_image_with_gemini(f"Draw an image of the following: {draw_prompt}. But make it a simple black silhouette on a white background, with very minimal detail and no additional content in the image, so I can use it for a computer icon.")
+                            image = p2s.generate_image_with_gemini(draw_prompt)
                             
                             if image:
                                 # Convert image to sand pattern
                                 try:
-                                    print("Converting image to sand pattern...")
-                                    image2sand = Image2Sand()
-                                    
-                                    # Convert PIL Image to OpenCV format (numpy array)
-                                    img_array = cv2.cvtColor(np.array(image), cv2.COLOR_RGB2BGR)
-                                    
-                                    # Configure options for sand pattern generation
-                                    options = {
-                                        'epsilon': 0.5,  # Controls point density
-                                        'contour_mode': 'Tree',  # Use tree mode for better pattern detection
-                                        'is_loop': True,  # Create continuous patterns
-                                        'minimize_jumps': True,  # Optimize path to minimize jumps
-                                        'output_format': 2,  # Use .thr format for Dune Weaver
-                                        'max_points': 300  # Limit number of points for smooth operation
-                                    }
-                                    
-                                    # Process the image directly and generate coordinates
-                                    result = image2sand.process_image(img_array, options)
+                                    result = p2s.convert_image_to_sand(image)
                                     
                                     # Save the pattern                                    
                                     with open(pattern_path, 'w') as f:
@@ -658,11 +506,11 @@ def record_and_transcribe():
                                     if IS_RPI:
                                         led_control.blink(LISTENING_LED, LED_GREEN, 2)
                                     
-                                    uploadResponse = upload_theta_rho(pattern_path)
+                                    uploadResponse = p2s.upload_theta_rho(pattern_path)
                                     # check if response has a "success" key and if it's true
                                     if "success" in uploadResponse and uploadResponse["success"]:
                                         theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
-                                        runResponse = run_theta_rho(theta_rho_file)
+                                        runResponse = p2s.run_theta_rho(theta_rho_file)
                                         if "success" in runResponse and runResponse["success"]:
                                             speak_text(f"Weaving the dunes for: {draw_prompt}")
                                         else:
@@ -864,7 +712,7 @@ def main():
         if IS_RPI:
             print("Setting POWER_LED to GREEN to indicate ready state")
             led_control.set_color(POWER_LED, LED_GREEN)
-            print(f"Press button to start recording")
+            print(f"Running in RPI mode")
             
             # Wait for any currently pressed button to be released before starting
             print("Waiting for button to be released if it's currently pressed...")
@@ -872,7 +720,7 @@ def main():
                 time.sleep(0.1)
             print("Button is now released, ready to accept button presses")
         else:
-            print("Running in desktop mode - press Enter to start recording")
+            print("Running in desktop mode")
         
         # Set an initial cancel time in the past
         last_cancel_time = time.time() - 5.0
