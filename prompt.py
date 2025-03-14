@@ -57,7 +57,11 @@ def main():
                     result["message"] = f"Weaving existing dunes for: {draw_prompt}"
                 else:
                     print(f"Error running theta_rho: {runResponse['detail']}")
-                    result["message"] = f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
+                    error_message = runResponse['detail']
+                    if runResponse['detail'].startswith(r'\d+:'):
+                        error_code = runResponse['detail'].split(':')[0]
+                        error_message = runResponse['detail'].split(':')[1]
+                    result["message"] = f"Sorry, I couldn't weave the dunes. {error_message}"
             else:
                 # Process the draw_prompt
                 image = p2s.generate_image_with_gemini(draw_prompt)
@@ -86,11 +90,19 @@ def main():
                             runResponse = p2s.run_theta_rho(theta_rho_file)
                             if "success" in runResponse and runResponse["success"]:
                                 result["status"] = "success"
-                                result["message"] = f"Weaving the dunes for: {prompt}"
+                                result["message"] = f"Weaving the dunes for: {draw_prompt}"
                             else:
-                                result["message"] = f"Sorry, I couldn't weave the dunes. {runResponse['detail']}"
+                                error_message = runResponse['detail']
+                                if runResponse['detail'].startswith(r'\d+:'):
+                                    error_code = runResponse['detail'].split(':')[0]
+                                    error_message = runResponse['detail'].split(':')[1]
+                                result["message"] = f"Sorry, I couldn't weave the dunes. {error_message}"
                         else:
-                            result["message"] = f"Sorry, I couldn't upload the pattern to DuneWeaver. {uploadResponse['detail']}"
+                            error_message = uploadResponse['detail']
+                            if uploadResponse['detail'].startswith(r'\d+:'):
+                                error_code = uploadResponse['detail'].split(':')[0]
+                                error_message = uploadResponse['detail'].split(':')[1]
+                            result["message"] = f"Sorry, I couldn't upload the pattern to DuneWeaver. {error_message}"
                     else:
                         result["message"] = "Failed to convert image to sand pattern"
                 else:

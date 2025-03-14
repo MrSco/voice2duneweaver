@@ -118,9 +118,6 @@ class CancellableRecognizer(sr.Recognizer):
 
 # Initialize recognition objects
 recognizer = CancellableRecognizer()
-recognizer.operation_timeout = 30.0  # Set a longer default timeout for recognizer
-recognizer.dynamic_energy_threshold = True  # Enable dynamic energy threshold
-recognizer.energy_threshold = 300  # Set a reasonable energy threshold for speech detection
 microphone = sr.Microphone()
 
 # Ensure transcripts directory exists
@@ -376,7 +373,8 @@ def record_and_transcribe():
         play_beep(frequency=1200, duration=0.3, volume=0.3)
         
         try:
-            audio = recognizer.listen(audio_source, phrase_time_limit=10)
+            print(f"Engergy level: {recognizer.energy_threshold}")
+            audio = recognizer.listen(audio_source, timeout=10, phrase_time_limit=10)
             
             # Check if cancel was requested during recording
             if cancel_recording or recognizer.should_cancel:
@@ -391,8 +389,6 @@ def record_and_transcribe():
             play_beep(frequency=800, duration=0.3, volume=0.3)
             
             print("Recognizing...")
-            # Set a longer timeout for recognition process
-            recognizer.operation_timeout = 30.0
             
             try:
                 text = recognizer.recognize_google(audio)
@@ -429,7 +425,11 @@ def record_and_transcribe():
                                 speak_text(f"Weaving the dunes for: {draw_prompt}")
                             else:
                                 print(f"Error running theta_rho: {runResponse['detail']}")
-                                speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
+                                error_message = runResponse['detail']
+                                if runResponse['detail'].startswith(r'\d+:'):
+                                    error_code = runResponse['detail'].split(':')[0]
+                                    error_message = runResponse['detail'].split(':')[1]
+                                speak_text(f"Sorry, I couldn't weave the dunes. {error_message}")
                         else:
                             speak_text(f"I'll generate {draw_prompt}")
                             print(f"Generating image for: {draw_prompt}")
@@ -456,6 +456,8 @@ def record_and_transcribe():
                                     
                                     uploadResponse = p2s.upload_theta_rho(pattern_path)
                                     # check if response has a "success" key and if it's true
+                                    # runResponse["detail"] is the error message and may have the error code up front... (409: Another pattern is already running)
+                                    # but it also may not have the error code up front... (Another pattern is already running)
                                     if "success" in uploadResponse and uploadResponse["success"]:
                                         theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
                                         runResponse = p2s.run_theta_rho(theta_rho_file)
@@ -463,10 +465,18 @@ def record_and_transcribe():
                                             speak_text(f"Weaving the dunes for: {draw_prompt}")
                                         else:
                                             print(f"Error running theta_rho: {runResponse['detail']}")
-                                            speak_text(f"Sorry, I couldn't weave the dunes. {runResponse['detail']}")
+                                            error_message = runResponse['detail']
+                                            if runResponse['detail'].startswith(r'\d+:'):
+                                                error_code = runResponse['detail'].split(':')[0]
+                                                error_message = runResponse['detail'].split(':')[1]
+                                            speak_text(f"Sorry, I couldn't weave the dunes. {error_message}")
                                     else:
                                         print(f"Error uploading theta_rho: {uploadResponse['detail']}")
-                                        speak_text("Sorry, I couldn't upload the pattern to DuneWeaver.")
+                                        error_message = uploadResponse['detail']
+                                        if uploadResponse['detail'].startswith(r'\d+:'):
+                                            error_code = uploadResponse['detail'].split(':')[0]
+                                            error_message = uploadResponse['detail'].split(':')[1]
+                                        speak_text(f"Sorry, I couldn't upload the pattern to DuneWeaver. {error_message}")
 
                                     
                                 except Exception as e:
