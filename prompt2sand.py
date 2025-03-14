@@ -108,7 +108,7 @@ class Prompt2Sand:
         """Extract the shutdown prompt from the transcribed text"""
         text = text.lower()
         # using a regex, check for shutdown, power off, etc.
-        match = re.search(r"\b(shutdown|power off|turn off)\b", text)
+        match = re.search(r"\b(shutdown|shut down|power off|turn off)\b", text)
         if match:
             return True
         return False

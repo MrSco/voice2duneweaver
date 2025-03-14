@@ -536,9 +536,11 @@ def record_and_transcribe():
 
 def cleanup():
     """Clean up resources"""
-    global running, audio_source
+    global running, audio_source, cleanup_running
     running = False
-    
+    if cleanup_running:
+        return
+    cleanup_running = True
     print("Cleaning up resources...")
     
     try:
