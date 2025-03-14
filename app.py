@@ -14,6 +14,7 @@ import array
 from prompt2sand import Prompt2Sand
 
 p2s = Prompt2Sand()
+cleanup_running = False
 
 # Platform detection
 IS_RPI = platform.system() == "Linux" and os.path.exists('/proc/device-tree/model') and 'raspberry pi' in open('/proc/device-tree/model').read().lower()
