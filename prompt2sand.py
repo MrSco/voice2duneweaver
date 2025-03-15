@@ -1,6 +1,6 @@
 import requests
 import re
-from typing import Optional
+from typing import Callable, Optional
 from dotenv import load_dotenv
 from google import genai
 from google.genai import types
@@ -81,6 +81,22 @@ class Prompt2Sand:
             print(f"Error converting image to sand pattern: {e}")
             return None
     
+    # handle prompt cases
+    def handle_prompt_cases(self, text: str, callback: Callable = None, IS_RPI: bool = False):
+        draw_prompt = None
+        if self.extract_stop_prompt(text):
+            callback("Stopping DuneWeaver execution...")
+            self.stop_execution()
+        elif self.extract_shutdown_prompt(text) and IS_RPI:
+            callback("Shutting down...")
+            os.system("sudo shutdown now")
+        elif self.extract_restart_prompt(text) and IS_RPI:
+            callback("Restarting...")
+            os.system("sudo reboot")
+        else:
+            # Extract drawing prompt if present
+            draw_prompt = self.extract_draw_prompt(text)
+        return draw_prompt
 
     def extract_draw_prompt(self, text: str) -> Optional[str]:
         """Extract the drawing prompt from the transcribed text"""
@@ -143,7 +159,7 @@ class Prompt2Sand:
         with open(pattern_path, 'rb') as f:
             files = {'file': f}
             try:
-                response = requests.post(url, files=files).json()
+                response = requests.post(url, files=files, timeout=5).json()
             except Exception as e:
                 print(f"Error uploading theta_rho: {e}")
                 response = {"detail": str(e)}
@@ -160,7 +176,7 @@ class Prompt2Sand:
         }
         print(f"Running theta_rho with data: {data}")
         try:
-            response = requests.post(url, json=data).json()
+            response = requests.post(url, json=data, timeout=5).json()
             #print(response.json())
         except Exception as e:
             print(f"Error running theta_rho: {e}")
@@ -173,7 +189,7 @@ class Prompt2Sand:
         print(f"Stopping DuneWeaver execution...")
         response = None
         try:
-            response = requests.post(url).json()
+            response = requests.post(url, timeout=5).json()
         except Exception as e:
             print(f"Error stopping DuneWeaver execution: {e}")
             response = {"detail": str(e)}

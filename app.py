@@ -139,6 +139,10 @@ def speak_text(text):
     except Exception as e:
         print(f"Error with text-to-speech: {e}")
 
+def speak_text_and_cleanup(text):
+    speak_text(text)
+    cleanup()
+
 class LEDControlDummy:
     """Dummy LED control for non-RPI platforms"""
     def __init__(self):
@@ -395,106 +399,92 @@ def record_and_transcribe():
             try:
                 text = recognizer.recognize_google(audio)
                 print(f"Recognized: {text}")
-                
-                stop_prompt = p2s.extract_stop_prompt(text)
-                shutdown_prompt = p2s.extract_shutdown_prompt(text)
-                restart_prompt = p2s.extract_restart_prompt(text)
-                if stop_prompt:
-                    speak_text("Stopping DuneWeaver execution...")
-                    p2s.stop_execution()
-                elif shutdown_prompt and IS_RPI:
-                    speak_text("Shutting down...")
-                    cleanup()
-                    os.system("sudo shutdown now")
-                elif restart_prompt and IS_RPI:
-                    speak_text("Restarting...")
-                    cleanup()
-                    os.system("sudo reboot")
-                else:
-                    # Extract drawing prompt if present
-                    draw_prompt = p2s.extract_draw_prompt(text)
-                    if draw_prompt:
-                        print(f"Extracted drawing prompt: {draw_prompt}")
-                        pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
-                        theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
-                        theta_rho_files = p2s.list_theta_rho_files()
-                        # check our list of theta_rho files. If its none or we already have a match to the theta_rho_file, skip the image generation
-                        if theta_rho_files is None:
-                            print(f"No theta_rho files found")
-                            speak_text("Cannot reach DuneWeaver.")
-                        elif any(theta_rho_file in file for file in theta_rho_files):
-                            print(f"Skipping image generation for: {draw_prompt} because it already exists")
-                            runResponse = p2s.run_theta_rho(theta_rho_file)
-                            if "success" in runResponse and runResponse["success"]:
-                                speak_text(f"Weaving the dunes for: {draw_prompt}")
-                            else:
-                                print(f"Error running theta_rho: {runResponse['detail']}")
-                                error_message = runResponse['detail']
-                                if runResponse['detail'].startswith(r'\d+:'):
-                                    error_code = runResponse['detail'].split(':')[0]
-                                    error_message = runResponse['detail'].split(':')[1]
-                                speak_text(f"Sorry, I couldn't weave the dunes. {error_message}")
-                        else:
-                            speak_text(f"I'll generate {draw_prompt}")
-                            print(f"Generating image for: {draw_prompt}")
-                            
-                            if IS_RPI:
-                                led_control.set_color(LISTENING_LED, LED_ORANGE)
-                            # Generate image using Gemini
-                            image = p2s.generate_image_with_gemini(draw_prompt)
-                            
-                            if image:
-                                # Convert image to sand pattern
-                                try:
-                                    result = p2s.convert_image_to_sand(image)
-                                    
-                                    # Save the pattern                                    
-                                    with open(pattern_path, 'w') as f:
-                                        f.write(result['formatted_coords'])
-                                    
-                                    print(f"Sand pattern saved to: {pattern_path}")
-                                    print(f"Number of points in pattern: {result['point_count']}")
-                                    
-                                    if IS_RPI:
-                                        led_control.blink(LISTENING_LED, LED_GREEN, 2)
-                                    
-                                    uploadResponse = p2s.upload_theta_rho(pattern_path)
-                                    # check if response has a "success" key and if it's true
-                                    # runResponse["detail"] is the error message and may have the error code up front... (409: Another pattern is already running)
-                                    # but it also may not have the error code up front... (Another pattern is already running)
-                                    if "success" in uploadResponse and uploadResponse["success"]:
-                                        theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
-                                        runResponse = p2s.run_theta_rho(theta_rho_file)
-                                        if "success" in runResponse and runResponse["success"]:
-                                            speak_text(f"Weaving the dunes for: {draw_prompt}")
-                                        else:
-                                            print(f"Error running theta_rho: {runResponse['detail']}")
-                                            error_message = runResponse['detail']
-                                            if runResponse['detail'].startswith(r'\d+:'):
-                                                error_code = runResponse['detail'].split(':')[0]
-                                                error_message = runResponse['detail'].split(':')[1]
-                                            speak_text(f"Sorry, I couldn't weave the dunes. {error_message}")
-                                    else:
-                                        print(f"Error uploading theta_rho: {uploadResponse['detail']}")
-                                        error_message = uploadResponse['detail']
-                                        if uploadResponse['detail'].startswith(r'\d+:'):
-                                            error_code = uploadResponse['detail'].split(':')[0]
-                                            error_message = uploadResponse['detail'].split(':')[1]
-                                        speak_text(f"Sorry, I couldn't upload the pattern to DuneWeaver. {error_message}")
 
-                                    
-                                except Exception as e:
-                                    print(f"Error converting image to sand pattern: {e}")
-                                    if IS_RPI:
-                                        led_control.blink(LISTENING_LED, LED_RED, 2)
-                                    speak_text("Sorry, I couldn't convert the image to a sand pattern.")
+                # handle prompt cases
+                draw_prompt = p2s.handle_prompt_cases(text, speak_text_and_cleanup, IS_RPI)
+
+                if draw_prompt:
+                    print(f"Extracted drawing prompt: {draw_prompt}")
+                    pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
+                    theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
+                    theta_rho_files = p2s.list_theta_rho_files()
+                    # check our list of theta_rho files. If its none or we already have a match to the theta_rho_file, skip the image generation
+                    if theta_rho_files is None:
+                        print(f"No theta_rho files found")
+                        speak_text("Cannot reach DuneWeaver.")
+                    elif any(theta_rho_file in file for file in theta_rho_files):
+                        print(f"Skipping image generation for: {draw_prompt} because it already exists")
+                        runResponse = p2s.run_theta_rho(theta_rho_file)
+                        if "success" in runResponse and runResponse["success"]:
+                            speak_text(f"Weaving the dunes for: {draw_prompt}")
+                        else:
+                            print(f"Error running theta_rho: {runResponse['detail']}")
+                            error_message = runResponse['detail']
+                            if runResponse['detail'].startswith(r'\d+:'):
+                                error_code = runResponse['detail'].split(':')[0]
+                                error_message = runResponse['detail'].split(':')[1]
+                            speak_text(f"Sorry, I couldn't weave the dunes. {error_message}")
+                    else:
+                        speak_text(f"I'll generate {draw_prompt}")
+                        print(f"Generating image for: {draw_prompt}")
+                        
+                        if IS_RPI:
+                            led_control.set_color(LISTENING_LED, LED_ORANGE)
+                        # Generate image using Gemini
+                        image = p2s.generate_image_with_gemini(draw_prompt)
+                        
+                        if image:
+                            # Convert image to sand pattern
+                            try:
+                                result = p2s.convert_image_to_sand(image)
                                 
-                            else:
+                                # Save the pattern                                    
+                                with open(pattern_path, 'w') as f:
+                                    f.write(result['formatted_coords'])
+                                
+                                print(f"Sand pattern saved to: {pattern_path}")
+                                print(f"Number of points in pattern: {result['point_count']}")
+                                
+                                if IS_RPI:
+                                    led_control.blink(LISTENING_LED, LED_GREEN, 2)
+                                
+                                uploadResponse = p2s.upload_theta_rho(pattern_path)
+                                # check if response has a "success" key and if it's true
+                                # runResponse["detail"] is the error message and may have the error code up front... (409: Another pattern is already running)
+                                # but it also may not have the error code up front... (Another pattern is already running)
+                                if "success" in uploadResponse and uploadResponse["success"]:
+                                    theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
+                                    runResponse = p2s.run_theta_rho(theta_rho_file)
+                                    if "success" in runResponse and runResponse["success"]:
+                                        speak_text(f"Weaving the dunes for: {draw_prompt}")
+                                    else:
+                                        print(f"Error running theta_rho: {runResponse['detail']}")
+                                        error_message = runResponse['detail']
+                                        if runResponse['detail'].startswith(r'\d+:'):
+                                            error_code = runResponse['detail'].split(':')[0]
+                                            error_message = runResponse['detail'].split(':')[1]
+                                        speak_text(f"Sorry, I couldn't weave the dunes. {error_message}")
+                                else:
+                                    print(f"Error uploading theta_rho: {uploadResponse['detail']}")
+                                    error_message = uploadResponse['detail']
+                                    if uploadResponse['detail'].startswith(r'\d+:'):
+                                        error_code = uploadResponse['detail'].split(':')[0]
+                                        error_message = uploadResponse['detail'].split(':')[1]
+                                    speak_text(f"Sorry, I couldn't upload the pattern to DuneWeaver. {error_message}")
+
+                                
+                            except Exception as e:
+                                print(f"Error converting image to sand pattern: {e}")
                                 if IS_RPI:
                                     led_control.blink(LISTENING_LED, LED_RED, 2)
-                                speak_text("Sorry, I couldn't generate the image.")
-                    else:
-                        speak_text("Sorry, I can only weave dunes. Ask me to draw something.")
+                                speak_text("Sorry, I couldn't convert the image to a sand pattern.")
+                            
+                        else:
+                            if IS_RPI:
+                                led_control.blink(LISTENING_LED, LED_RED, 2)
+                            speak_text("Sorry, I couldn't generate the image.")
+                else:
+                    speak_text("Sorry, I can only weave dunes. Ask me to draw something.")
 
             except sr.UnknownValueError:
                 print("Could not understand the audio")
