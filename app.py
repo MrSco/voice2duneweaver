@@ -483,7 +483,7 @@ def record_and_transcribe():
                             if IS_RPI:
                                 led_control.blink(LISTENING_LED, LED_RED, 2)
                             speak_text("Sorry, I couldn't generate the image.")
-                            
+
             except sr.UnknownValueError:
                 print("Could not understand the audio")
                 # Play an "error" beep - low pitch
@@ -653,6 +653,10 @@ def main():
         print("Adjusting for ambient noise...")
         recognizer.adjust_for_ambient_noise(audio_source, duration=2)
         print("Microphone initialized and ready")
+        # Play startup sound and greeting
+        #time.sleep(0.5)  # Brief pause before greeting
+        speak_text("Greetings Professor Fallken.")
+        speak_text("Shall we weave some dunes? Press the button and wait for the beep.")
         
         # Stop the startup animation
         print("Stopping startup animation...")
@@ -676,11 +680,6 @@ def main():
         
         # Set an initial cancel time in the past
         last_cancel_time = time.time() - 5.0
-        
-        # Play startup sound and greeting
-        #time.sleep(0.5)  # Brief pause before greeting
-        speak_text("Greetings Professor Fallken.")
-        speak_text("Shall we weave some dunes? Press the button and wait for the beep.")
         
         while running:
             if IS_RPI:
