@@ -31,7 +31,7 @@ def main():
     IS_RPI = platform.system() == "Linux" and os.path.exists('/proc/device-tree/model') and 'raspberry pi' in open('/proc/device-tree/model').read().lower()
 
     # handle prompt cases
-    draw_prompt = p2s.handle_prompt_cases(prompt, set_result_success, None, IS_RPI)
+    draw_prompt = p2s.handle_prompt_cases(prompt, set_result_success, IS_RPI)
     if draw_prompt:
         print(f"Extracted drawing prompt: {draw_prompt}")
         # Ensure transcripts directory exists

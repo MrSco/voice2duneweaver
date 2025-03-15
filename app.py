@@ -63,13 +63,14 @@ PATTERNS_DIR = "patterns"
 # Global variables
 p2s = Prompt2Sand()
 blink_led_running = False
-cleanup_running = False
 running = True
 is_recording = False
 startup_animation_running = True
 cancel_recording = False
 last_cancel_time = 0
 audio_source = None  # Will hold our persistent audio source
+mic_cleaned_up = False
+GPIO_cleaned_up = False
 
 # Custom Recognizer class that can be interrupted
 class CancellableRecognizer(sr.Recognizer):
@@ -152,10 +153,6 @@ def speak_text(text):
         logger.info(f"Done speaking: {text}")
     except Exception as e:
         logger.error(f"Error with text-to-speech: {e}")
-
-def speak_text_and_cleanup(text):
-    speak_text(text)
-    cleanup()
 
 class LEDControlRPI:
     """LED control for RPI with ReSpeaker. Also handles simulation for non-RPI platforms."""
@@ -440,7 +437,7 @@ def record_and_transcribe():
                     logger.info("Blink LED thread completed")
                 
                 # handle prompt cases
-                draw_prompt = p2s.handle_prompt_cases(text, speak_text, speak_text_and_cleanup, IS_RPI)
+                draw_prompt = p2s.handle_prompt_cases(text, speak_text, IS_RPI)
 
                 if draw_prompt:
                     logger.info(f"Extracted drawing prompt: {draw_prompt}")
@@ -625,12 +622,8 @@ def record_and_transcribe():
 
 def cleanup():
     """Clean up resources"""
-    global running, audio_source, cleanup_running
+    global running, audio_source, mic_cleaned_up, GPIO_cleaned_up
     running = False
-    if cleanup_running:
-        logger.info("Cleanup already running, skipping")
-        return
-    cleanup_running = True
     logger.info("Cleaning up resources...")
     
     try:
@@ -638,9 +631,10 @@ def cleanup():
         speak_text("The only winning move is not to play.")
         
         # Properly close the audio source if it's open
-        if audio_source is not None:
+        if audio_source is not None and not mic_cleaned_up:
             try:
                 microphone.__exit__(None, None, None)
+                mic_cleaned_up = True
                 logger.info("Microphone stream closed")
             except Exception as e:
                 logger.error(f"Error closing microphone stream: {e}")
@@ -655,14 +649,10 @@ def cleanup():
         # Give a small delay to ensure LED operations complete
         time.sleep(0.2)
 
-        if IS_RPI:
-            # Explicitly set GPIO mode before cleanup to avoid the error
-            if not GPIO.getmode():
-                GPIO.setmode(GPIO.BCM)
-            
+        if IS_RPI and not GPIO_cleaned_up:
             # Clean up GPIO pins
             GPIO.cleanup()
-            
+            GPIO_cleaned_up = True
             logger.info("GPIO resources cleaned up")
     except Exception as e:
         logger.error(f"Error during cleanup: {e}")
@@ -673,9 +663,6 @@ def signal_handler(sig, frame):
     logger.info("Exiting...")
     running = False
     cleanup()
-    # Exit immediately to prevent further automatic cleanup
-    import os
-    os._exit(0)
 
 def blink_led(led_num: int, rgb: Tuple[int, int, int]):
     global blink_led_running
@@ -726,6 +713,12 @@ def main():
     try:
         logger.info("Starting voice transcriber...")
         
+        # Start the animation
+        startup_animation_running = True
+        startup_thread = threading.Thread(target=startup_animation)
+        startup_thread.daemon = True
+        startup_thread.start()
+        
         # Start the startup animation in a separate thread if on RPI
         startup_thread = None
         if IS_RPI:
@@ -742,11 +735,6 @@ def main():
             button_state = "PRESSED" if GPIO.input(BUTTON_PIN) == GPIO.LOW else "RELEASED"
             logger.info(f"Initial button state: {button_state}")
             
-        # Start the animation
-        startup_animation_running = True
-        startup_thread = threading.Thread(target=startup_animation)
-        startup_thread.daemon = True
-        startup_thread.start()
                     
         # Initialize microphone and create a persistent audio source
         logger.info("Initializing microphone and creating audio stream...")
@@ -828,15 +816,7 @@ def main():
     finally:
         startup_animation_running = False
         if startup_thread:
-            startup_thread.join(timeout=1)
-        cleanup()
+            startup_thread.join(timeout=1)        
 
 if __name__ == "__main__":
-    try:
-        main()
-    except KeyboardInterrupt:
-        # This should catch Ctrl+C if the signal handler somehow misses it
-        logger.info("Keyboard interrupt received")
-    finally:
-        # Ensure cleanup happens
-        cleanup() 
+    main()

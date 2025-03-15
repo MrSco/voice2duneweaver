@@ -93,7 +93,7 @@ class Prompt2Sand:
             return None
     
     # handle prompt cases
-    def handle_prompt_cases(self, text: str, callback: Callable = None, callback_cleanup: Callable = None, IS_RPI: bool = False):
+    def handle_prompt_cases(self, text: str, callback: Callable = None, IS_RPI: bool = False):
         draw_prompt = None
         if self.extract_stop_prompt(text):
             if callback:
@@ -107,12 +107,12 @@ class Prompt2Sand:
                 if callback:
                     callback(f"Sorry, I couldn't stop the dunes.")
         elif self.extract_shutdown_prompt(text) and IS_RPI:
-            if callback_cleanup:
-                callback_cleanup("Shutting down...")
+            if callback:
+                callback("Shutting down...")
             os.system("sudo shutdown now")
         elif self.extract_restart_prompt(text) and IS_RPI:
-            if callback_cleanup:
-                callback_cleanup("Restarting...")
+            if callback:
+                callback("Restarting...")
             os.system("sudo reboot")
         else:
             # Extract drawing prompt if present
