@@ -43,7 +43,7 @@ fi
 
 # install apt packages
 echo -e "${YELLOW}Installing apt packages...${NC}"
-sudo apt install python3-dev libportaudio2 portaudio19-dev libffi-dev libssl-dev
+sudo apt install python3-dev libportaudio2 portaudio19-dev libffi-dev libssl-dev espeak espeak-ng libespeak1
 
 # Create virtual environment if it doesn't exist
 if [ ! -d ".venv" ]; then

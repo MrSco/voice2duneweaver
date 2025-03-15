@@ -132,11 +132,13 @@ tts_engine.setProperty('rate', 130)
 def speak_text(text):
     """Use text-to-speech to speak the given text"""
     try:
-        time.sleep(0.1)
-        tts_engine.say(text)
-        tts_engine.runAndWait()
-        while tts_engine._inLoop:
+        # if we're running on a Raspberry Pi, we need to use espeak
+        if IS_RPI:
+            os.system(f"espeak -ven-us+f3 -s150 -p50 '{text}'")
+        else:
             time.sleep(0.1)
+            tts_engine.say(text)
+            tts_engine.runAndWait()
         print(f"Done speaking: {text}")
     except Exception as e:
         print(f"Error with text-to-speech: {e}")
@@ -634,7 +636,7 @@ def main():
             
             # Wait for the button to stabilize
             print("Waiting for button to stabilize...")
-            time.sleep(1)
+            time.sleep(0.1)
             
             # Report initial button state
             button_state = "PRESSED" if GPIO.input(BUTTON_PIN) == GPIO.LOW else "RELEASED"
@@ -645,10 +647,7 @@ def main():
             startup_thread = threading.Thread(target=startup_animation)
             startup_thread.daemon = True
             startup_thread.start()
-            
-            # Give the startup animation some time to run before proceeding
-            time.sleep(2)
-        
+                    
         # Initialize microphone and create a persistent audio source
         print("Initializing microphone and creating audio stream...")
         audio_source = microphone.__enter__()
