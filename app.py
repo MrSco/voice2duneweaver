@@ -118,6 +118,8 @@ class CancellableRecognizer(sr.Recognizer):
 
 # Initialize recognition objects
 recognizer = CancellableRecognizer()
+recognizer.dynamic_energy_threshold = True
+recognizer.energy_threshold = 300
 microphone = sr.Microphone()
 
 # Ensure transcripts directory exists
@@ -402,9 +404,11 @@ def record_and_transcribe():
                     p2s.stop_execution()
                 elif shutdown_prompt and IS_RPI:
                     speak_text("Shutting down...")
+                    cleanup()
                     os.system("sudo shutdown now")
                 elif restart_prompt and IS_RPI:
                     speak_text("Restarting...")
+                    cleanup()
                     os.system("sudo reboot")
                 else:
                     # Extract drawing prompt if present
