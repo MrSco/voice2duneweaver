@@ -135,6 +135,7 @@ def speak_text(text):
         time.sleep(0.1)
         tts_engine.say(text)
         tts_engine.runAndWait()
+        time.sleep(0.1)
         print(f"Done speaking: {text}")
     except Exception as e:
         print(f"Error with text-to-speech: {e}")
