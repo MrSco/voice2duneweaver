@@ -87,7 +87,14 @@ class Prompt2Sand:
         if self.extract_stop_prompt(text):
             if callback:
                 callback("Stopping DuneWeaver execution...")
-            self.stop_execution()
+            stopResponse = self.stop_execution()
+            if "success" in stopResponse and stopResponse["success"]:
+                if callback:
+                    callback("DuneWeaver execution stopped.")
+            else:
+                print(f"Error stopping DuneWeaver execution: {stopResponse['detail']}")                
+                if callback:
+                    callback(f"Sorry, I couldn't stop the dunes.")
         elif self.extract_shutdown_prompt(text) and IS_RPI:
             if callback_cleanup:
                 callback_cleanup("Shutting down...")
@@ -164,7 +171,7 @@ class Prompt2Sand:
             try:
                 response = requests.post(url, files=files, timeout=5).json()
             except Exception as e:
-                print(f"Error uploading theta_rho: {e}")
+                #print(f"Error uploading theta_rho: {e}")
                 response = {"detail": str(e)}
             finally:
                 return response
@@ -182,7 +189,7 @@ class Prompt2Sand:
             response = requests.post(url, json=data, timeout=5).json()
             #print(response.json())
         except Exception as e:
-            print(f"Error running theta_rho: {e}")
+            #print(f"Error running theta_rho: {e}")
             response = {"detail": str(e)}
         finally:
             return response
@@ -194,7 +201,7 @@ class Prompt2Sand:
         try:
             response = requests.post(url, timeout=5).json()
         except Exception as e:
-            print(f"Error stopping DuneWeaver execution: {e}")
+            #print(f"Error stopping DuneWeaver execution: {e}")
             response = {"detail": str(e)}
         finally:
             return response

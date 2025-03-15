@@ -132,10 +132,19 @@ tts_engine.setProperty('rate', 130)
 def speak_text(text):
     """Use text-to-speech to speak the given text"""
     try:
-        time.sleep(0.1)
+        time.sleep(0.1)  # Short delay before starting speech
         tts_engine.say(text)
-        tts_engine.runAndWait()
-        time.sleep(0.1)
+        # Start the speech
+        tts_engine.startLoop(False)  # Start non-blocking loop
+        
+        # Wait until speech is complete
+        while tts_engine.isBusy():
+            tts_engine.iterate()  # Process events
+            time.sleep(0.1)
+        
+        # Ensure engine is stopped
+        tts_engine.endLoop()
+        
     except Exception as e:
         print(f"Error with text-to-speech: {e}")
 
@@ -654,7 +663,6 @@ def main():
         recognizer.adjust_for_ambient_noise(audio_source, duration=2)
         print("Microphone initialized and ready")
         # Play startup sound and greeting
-        #time.sleep(0.5)  # Brief pause before greeting
         speak_text("Greetings Professor Fallken.")
         speak_text("Shall we weave some dunes? Press the button and wait for the beep.")
         
