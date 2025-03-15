@@ -12,3 +12,4 @@ pyaudio  # For audio input
 RPi.GPIO; platform_system == "Linux"  # GPIO control for Raspberry Pi
 gpiozero; platform_system == "Linux"  # GPIO utilities for Raspberry Pi
 spidev; platform_system == "Linux"  # SPI control for Raspberry Pi
+lgpio; platform_system == "Linux"  # GPIO utilities for Raspberry Pi
