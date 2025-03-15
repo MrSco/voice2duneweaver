@@ -126,8 +126,9 @@ microphone = sr.Microphone()
 os.makedirs(PATTERNS_DIR, exist_ok=True)
 
 # Initialize text-to-speech engine
+TTS_RATE = 130
 tts_engine = pyttsx3.init()
-tts_engine.setProperty('rate', 130)
+tts_engine.setProperty('rate', TTS_RATE)
 
 def speak_text(text):
     """Use text-to-speech to speak the given text"""
@@ -135,7 +136,7 @@ def speak_text(text):
         # if we're running on a Raspberry Pi, we need to use espeak
         if IS_RPI:
             print("using espeak")
-            os.system(f"espeak-ng -ven-us+f3 -s150 -p50 '{text}'")
+            os.system(f"espeak-ng -ven-us -s{TTS_RATE} '{text}'")
         else:
             print("using pyttsx3")
             time.sleep(0.1)
