@@ -401,7 +401,7 @@ def record_and_transcribe():
                 print(f"Recognized: {text}")
 
                 # handle prompt cases
-                draw_prompt = p2s.handle_prompt_cases(text, speak_text_and_cleanup, IS_RPI)
+                draw_prompt = p2s.handle_prompt_cases(text, speak_text, speak_text_and_cleanup, IS_RPI)
 
                 if draw_prompt:
                     print(f"Extracted drawing prompt: {draw_prompt}")
