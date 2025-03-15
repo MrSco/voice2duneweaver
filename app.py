@@ -135,7 +135,7 @@ def speak_text(text):
         time.sleep(0.1)
         tts_engine.say(text)
         tts_engine.runAndWait()
-        time.sleep(1)
+        print(f"Done speaking: {text}")
     except Exception as e:
         print(f"Error with text-to-speech: {e}")
 
@@ -654,9 +654,7 @@ def main():
         recognizer.adjust_for_ambient_noise(audio_source, duration=2)
         print("Microphone initialized and ready")
         # Play startup sound and greeting
-        speak_text("Greetings Professor Fallken.")
-        speak_text("Shall we weave some dunes? Press the button and wait for the beep.")
-        time.sleep(2)
+        speak_text("Greetings Professor Fallken. Shall we weave some dunes? Press the button and wait for the beep.")
         
         # Stop the startup animation
         print("Stopping startup animation...")
