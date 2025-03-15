@@ -41,6 +41,10 @@ if [ -f /proc/device-tree/model ] && grep -q "raspberry pi" /proc/device-tree/mo
     fi
 fi
 
+# install apt packages
+echo -e "${YELLOW}Installing apt packages...${NC}"
+sudo apt install python3-dev libportaudio2 portaudio19-dev libffi-dev libssl-dev
+
 # Create virtual environment if it doesn't exist
 if [ ! -d ".venv" ]; then
     echo -e "${YELLOW}Creating virtual environment...${NC}"

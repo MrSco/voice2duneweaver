@@ -45,6 +45,8 @@ def main():
         draw_prompt = p2s.extract_draw_prompt(prompt)
         if draw_prompt:
             print(f"Extracted drawing prompt: {draw_prompt}")
+            # Ensure transcripts directory exists
+            os.makedirs(PATTERNS_DIR, exist_ok=True)
             pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
             theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
             theta_rho_files = p2s.list_theta_rho_files()
