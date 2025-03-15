@@ -483,9 +483,7 @@ def record_and_transcribe():
                             if IS_RPI:
                                 led_control.blink(LISTENING_LED, LED_RED, 2)
                             speak_text("Sorry, I couldn't generate the image.")
-                else:
-                    speak_text("Sorry, I can only weave dunes. Ask me to draw something.")
-
+                            
             except sr.UnknownValueError:
                 print("Could not understand the audio")
                 # Play an "error" beep - low pitch
@@ -641,7 +639,6 @@ def main():
             print(f"Initial button state: {button_state}")
             
             # Start the animation
-            print("Starting LED startup animation...")
             startup_animation_running = True
             startup_thread = threading.Thread(target=startup_animation)
             startup_thread.daemon = True
