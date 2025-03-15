@@ -10,7 +10,18 @@ from image2sand import Image2Sand
 import os
 import cv2
 import numpy as np
+import logging
 
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s:%(lineno)d - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(),
+    ]
+)
+
+logger = logging.getLogger(__name__)
 
 class Prompt2Sand:
     """
@@ -37,7 +48,7 @@ class Prompt2Sand:
         """Generate an image using Gemini 2.0 Flash Experimental"""
         try:
             prompt = self.draw_prompt.replace('{{}}', prompt)
-            print(f"Generating image: {prompt}")
+            logger.info(f"Generating image: {prompt}")
             response = self.genai_client.models.generate_content(
                 model="models/gemini-2.0-flash-exp",
                 contents=prompt,
@@ -49,17 +60,17 @@ class Prompt2Sand:
                 if part.inline_data is not None:
                     return Image.open(BytesIO(part.inline_data.data))
                 elif part.text is not None:
-                    print(f"Model response: {part.text}")
+                    logger.info(f"Model response: {part.text}")
             
             return None
         except Exception as e:
-            print(f"Error generating image: {e}")
+            logger.error(f"Error generating image: {e}")
             return None
         
     def convert_image_to_sand(self, image: Image.Image) -> Optional[str]:
         # Convert image to sand pattern
         try:
-            print("Converting image to sand pattern...")
+            logger.info("Converting image to sand pattern...")
             image2sand = Image2Sand()
             
             # Convert PIL Image to OpenCV format (numpy array)
@@ -78,7 +89,7 @@ class Prompt2Sand:
             # Process the image directly and generate coordinates
             return image2sand.process_image(img_array, options)            
         except Exception as e:
-            print(f"Error converting image to sand pattern: {e}")
+            logger.error(f"Error converting image to sand pattern: {e}")
             return None
     
     # handle prompt cases
@@ -92,7 +103,7 @@ class Prompt2Sand:
                 if callback:
                     callback("DuneWeaver execution stopped.")
             else:
-                print(f"Error stopping DuneWeaver execution: {stopResponse['detail']}")                
+                logger.error(f"Error stopping DuneWeaver execution: {stopResponse['detail']}")                
                 if callback:
                     callback(f"Sorry, I couldn't stop the dunes.")
         elif self.extract_shutdown_prompt(text) and IS_RPI:
@@ -158,7 +169,7 @@ class Prompt2Sand:
         try:
             response = requests.get(url, timeout=5).json()
         except Exception as e:
-            print(f"Error listing theta_rho files: {e}")
+            logger.error(f"Error listing theta_rho files: {e}")
         finally:
             return response
     
@@ -171,7 +182,7 @@ class Prompt2Sand:
             try:
                 response = requests.post(url, files=files, timeout=5).json()
             except Exception as e:
-                #print(f"Error uploading theta_rho: {e}")
+                logger.error(f"Error uploading theta_rho: {e}")
                 response = {"detail": str(e)}
             finally:
                 return response
@@ -184,24 +195,23 @@ class Prompt2Sand:
             'file_name': pattern_path,
             'pre_execution': 'adaptive'
         }
-        print(f"Running theta_rho with data: {data}")
+        logger.info(f"Running theta_rho with data: {data}")
         try:
             response = requests.post(url, json=data, timeout=5).json()
-            #print(response.json())
         except Exception as e:
-            #print(f"Error running theta_rho: {e}")
+            logger.error(f"Error running theta_rho: {e}")
             response = {"detail": str(e)}
         finally:
             return response
     
     def stop_execution(self):
         url = f"{self.dw_url}/stop_execution"
-        print(f"Stopping DuneWeaver execution...")
+        logger.info(f"Stopping DuneWeaver execution...")
         response = None
         try:
             response = requests.post(url, timeout=5).json()
         except Exception as e:
-            #print(f"Error stopping DuneWeaver execution: {e}")
+            logger.error(f"Error stopping DuneWeaver execution: {e}")
             response = {"detail": str(e)}
         finally:
             return response
