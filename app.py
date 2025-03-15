@@ -135,10 +135,9 @@ def speak_text(text):
     try:
         # if we're running on a Raspberry Pi, we need to use espeak
         if IS_RPI:
-            print("using espeak")
-            os.system(f"espeak-ng -ven-us -s{TTS_RATE} '{text}'")
+            escaped_text = text.replace("'", "'\\''")
+            os.system(f"espeak-ng -ven-us -s{TTS_RATE} '{escaped_text}'")
         else:
-            print("using pyttsx3")
             time.sleep(0.1)
             tts_engine.say(text)
             tts_engine.runAndWait()
