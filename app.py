@@ -550,6 +550,7 @@ def cleanup():
     global running, audio_source, cleanup_running
     running = False
     if cleanup_running:
+        print("Cleanup already running, skipping")
         return
     cleanup_running = True
     print("Cleaning up resources...")
