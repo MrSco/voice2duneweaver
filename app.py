@@ -24,50 +24,46 @@ logging.basicConfig(
 
 logger = logging.getLogger(__name__)
 
-
-p2s = Prompt2Sand()
-cleanup_running = False
-
 # Platform detection
 IS_RPI = platform.system() == "Linux" and os.path.exists('/proc/device-tree/model') and 'raspberry pi' in open('/proc/device-tree/model').read().lower()
+# ReSpeaker 2-Mic Hat configuration
+BUTTON_PIN = 17  # GPIO pin for the button on ReSpeaker
+LEDS_GPIO = 12   # GPIO pin for LED power
+# LED Settings
+NUM_LEDS = 3
+LED_BRIGHTNESS = 8  # Max brightness is 31
+# LED numbers
+POWER_LED = 0
+CPU_LED = 1
+LISTENING_LED = 2
+# LED colors as RGB tuples
+LED_OFF = (0, 0, 0)
+LED_RED = (255, 0, 0)
+LED_GREEN = (0, 255, 0)
+LED_BLUE = (0, 0, 255)
+LED_ORANGE = (255, 165, 0)
+LED_YELLOW = (255, 255, 0)
+LED_PURPLE = (128, 0, 128)
+# Startup animation sequence
+STARTUP_SEQUENCE = [
+    (POWER_LED, LED_RED),
+    (CPU_LED, LED_ORANGE),
+    (LISTENING_LED, LED_BLUE)
+]
 
 # Optional RPI-specific imports
 if IS_RPI:
     import RPi.GPIO as GPIO
     from apa102 import APA102
     import gpiozero
-    
-    # ReSpeaker 2-Mic Hat configuration
-    BUTTON_PIN = 17  # GPIO pin for the button on ReSpeaker
-    LEDS_GPIO = 12   # GPIO pin for LED power
-
-    # LED Settings
-    NUM_LEDS = 3
-    LED_BRIGHTNESS = 8  # Max brightness is 31
-
-    # LED numbers
-    POWER_LED = 0
-    CPU_LED = 1
-    LISTENING_LED = 2
-
-    # LED colors as RGB tuples
-    LED_OFF = (0, 0, 0)
-    LED_RED = (255, 0, 0)
-    LED_GREEN = (0, 255, 0)
-    LED_BLUE = (0, 0, 255)
-    LED_ORANGE = (255, 165, 0)
-
-    # Startup animation sequence
-    STARTUP_SEQUENCE = [
-        (POWER_LED, LED_RED),
-        (CPU_LED, LED_ORANGE),
-        (LISTENING_LED, LED_BLUE)
-    ]
 
 # Settings
 PATTERNS_DIR = "patterns"
 
 # Global variables
+p2s = Prompt2Sand()
+blink_led_running = False
+cleanup_running = False
 running = True
 is_recording = False
 startup_animation_running = True
@@ -161,99 +157,105 @@ def speak_text_and_cleanup(text):
     speak_text(text)
     cleanup()
 
-class LEDControlDummy:
-    """Dummy LED control for non-RPI platforms"""
-    def __init__(self):
-        logger.info("LED control not available - not running on Raspberry Pi")
-    
-    def set_color(self, led_num: int, rgb: Tuple[int, int, int]):
-        pass
-    
-    def turn_on(self):
-        pass
-    
-    def turn_off(self):
-        pass
-    
-    def blink(self, led_num: int, rgb: Tuple[int, int, int], duration: int):
-        pass
-
 class LEDControlRPI:
-    """LED control for RPI with ReSpeaker"""
+    """LED control for RPI with ReSpeaker. Also handles simulation for non-RPI platforms."""
     def __init__(self, led_brightness=None):
-        try:
-            logger.info("Initializing ReSpeaker 2-Mic Hat LEDs...")
-            self.led_power = gpiozero.LED(LEDS_GPIO, active_high=False)
-            self.led_brightness = led_brightness if led_brightness is not None else 10
-            self.led_states = [LED_OFF] * NUM_LEDS
+        self.led_states = [LED_OFF] * NUM_LEDS
+        if IS_RPI:
+            try:
+                logger.info("Initializing ReSpeaker 2-Mic Hat LEDs...")
+                self.led_power = gpiozero.LED(LEDS_GPIO, active_high=False)
+                self.led_brightness = led_brightness if led_brightness is not None else 10
+                self.leds = None
+                # Ensure LED power is on
+                logger.info(f"Turning on LED power pin {LEDS_GPIO}...")
+                self.turn_on()
+                logger.info("LED initialization complete")
+            except Exception as e:
+                logger.error(f"ERROR initializing LEDs: {e}")
+                self.leds = None
+        else:
+            logger.info("LED control not available - simulating LED activity for non-Raspberry Pi platform")
             self.leds = None
-            # Ensure LED power is on
-            logger.info(f"Turning on LED power pin {LEDS_GPIO}...")
-            self.turn_on()
-            logger.info("LED initialization complete")
-        except Exception as e:
-            logger.error(f"ERROR initializing LEDs: {e}")
-            self.leds = None
-
+    
     def set_color(self, led_num: int, rgb: Tuple[int, int, int]):
         if led_num < 0 or led_num >= NUM_LEDS:
             return
-        if self.leds is None:
-            logger.warning(f"Cannot set LED color - LED controller not initialized")
-            return
-        try:
-            # Only update if color is different
-            if self.led_states[led_num] != rgb:
-                self.leds.set_pixel(led_num, rgb[0], rgb[1], rgb[2])
-                self.leds.show()
-                self.led_states[led_num] = rgb
-                #logger.debug(f"LED {led_num} set to RGB: {rgb}")
-        except Exception as e:
-            logger.error(f"Error setting LED color: {e}")
-
+        
+        # Only update if color is different from current state
+        if self.led_states[led_num] != rgb:
+            self.led_states[led_num] = rgb
+            if IS_RPI:
+                if self.leds is not None:
+                    try:
+                        self.leds.set_pixel(led_num, rgb[0], rgb[1], rgb[2])
+                        self.leds.show()
+                    except Exception as e:
+                        logger.error(f"Error setting LED color: {e}")
+                else:
+                    logger.warning(f"Cannot set LED color - LED controller not initialized")
+            else:
+                # Log simulated LED activity
+                if rgb == LED_OFF:
+                    logger.info(f"LED {led_num} turned OFF")
+                else:
+                    logger.info(f"LED {led_num} set to RGB: {rgb}")
+    
     def turn_on(self):
-        try:
-            # First turn on power
-            logger.info("Activating LED power...")
-            self.led_power.on()
-            time.sleep(0.2)  # Give power time to stabilize
-            
-            # Then initialize APA102 driver
-            logger.info(f"Creating APA102 driver with {NUM_LEDS} LEDs, brightness: {self.led_brightness}")
-            self.leds = APA102(num_led=NUM_LEDS, global_brightness=self.led_brightness)
-            self.led_states = [LED_OFF] * NUM_LEDS
-            
-            # Turn off all LEDs initially (to reset state)
-            logger.info("Resetting all LEDs to OFF state")
-            for i in range(NUM_LEDS):
-                self.leds.set_pixel(i, 0, 0, 0)
-            self.leds.show()
-            
-            logger.info("LED power and initialization successful")
-        except Exception as e:
-            logger.error(f"ERROR turning on LEDs: {e}")
-            self.leds = None
-
-    def turn_off(self):
-        try:
-            if self.leds is not None:
-                logger.info("Turning off all LEDs")
+        if IS_RPI:
+            try:
+                # First turn on power
+                logger.info("Activating LED power...")
+                self.led_power.on()
+                time.sleep(0.2)  # Give power time to stabilize
+                
+                # Then initialize APA102 driver
+                logger.info(f"Creating APA102 driver with {NUM_LEDS} LEDs, brightness: {self.led_brightness}")
+                self.leds = APA102(num_led=NUM_LEDS, global_brightness=self.led_brightness)
+                
+                # Turn off all LEDs initially (to reset state)
+                logger.info("Resetting all LEDs to OFF state")
                 for i in range(NUM_LEDS):
-                    self.set_color(i, LED_OFF)
-                self.leds.cleanup()
+                    self.leds.set_pixel(i, 0, 0, 0)
+                self.leds.show()
+                
+                logger.info("LED power and initialization successful")
+            except Exception as e:
+                logger.error(f"ERROR turning on LEDs: {e}")
                 self.leds = None
-            logger.info(f"Turning off LED power pin {LEDS_GPIO}")
-            self.led_power.off()
-        except Exception as e:
-            logger.error(f"Error turning off LEDs: {e}")
-
+        else:
+            logger.info("LED power activated (simulated)")
+        
+        self.led_states = [LED_OFF] * NUM_LEDS
+    
+    def turn_off(self):
+        if IS_RPI:
+            try:
+                if self.leds is not None:
+                    logger.info("Turning off all LEDs")
+                    for i in range(NUM_LEDS):
+                        self.set_color(i, LED_OFF)
+                    self.leds.cleanup()
+                    self.leds = None
+                logger.info(f"Turning off LED power pin {LEDS_GPIO}")
+                self.led_power.off()
+            except Exception as e:
+                logger.error(f"Error turning off LEDs: {e}")
+        else:
+            logger.info("LED power deactivated (simulated)")
+            for i in range(NUM_LEDS):
+                self.set_color(i, LED_OFF)
+    
     def blink(self, led_num: int, rgb: Tuple[int, int, int], duration: int):
-        if self.leds is None:
+        if IS_RPI and self.leds is None:
             logger.warning("WARNING: Cannot blink LED - LED controller not initialized")
             return
+        
         original_color = self.led_states[led_num]
+        if not IS_RPI:
+            logger.info(f"Blinking LED {led_num} with color {rgb} for {duration} cycles")
+        
         try:
-            #print(f"Blinking LED {led_num} with color {rgb} for {duration} cycles")
             for _ in range(duration):
                 self.set_color(led_num, rgb)
                 time.sleep(0.3)
@@ -263,8 +265,8 @@ class LEDControlRPI:
         except Exception as e:
             logger.error(f"Error blinking LED: {e}")
 
-# Initialize LED controller based on platform
-led_control = LEDControlRPI(led_brightness=LED_BRIGHTNESS) if IS_RPI else LEDControlDummy()
+# Initialize LED controller
+led_control = LEDControlRPI(led_brightness=LED_BRIGHTNESS)
 
 def check_cancel_input():
     """Check if cancel input (button/Enter) was triggered"""
@@ -352,8 +354,10 @@ def play_beep(frequency=1000, duration=0.2, volume=0.5):
         # Convert to binary data
         packed_wave = struct.pack('%df' % len(sine_wave), *sine_wave)
         
+        logger.info(f"Playing beep with frequency {frequency} Hz, duration {duration} seconds, volume {volume}")
         # Play the sound
         stream.write(packed_wave)
+        logger.info("Beep played")
         
         # Clean up the audio stream
         stream.stop_stream()
@@ -365,12 +369,13 @@ def play_beep(frequency=1000, duration=0.2, volume=0.5):
 
 def record_and_transcribe():
     """Record audio and transcribe it using Google Speech Recognition"""
-    global is_recording, cancel_recording, last_cancel_time, audio_source
+    global is_recording, cancel_recording, last_cancel_time, audio_source, blink_led_running
     
-    if IS_RPI:
-        led_control.set_color(LISTENING_LED, LED_BLUE)
+    blink_led_running = True
+    blink_led_thread = threading.Thread(target=blink_led, args=(LISTENING_LED, LED_PURPLE))
+    blink_led_thread.daemon = True
+    blink_led_thread.start()
     
-    logger.info("Listening for speech... (Press button/Enter to cancel)")
     is_recording = True
     cancel_recording = False
     
@@ -389,12 +394,10 @@ def record_and_transcribe():
         cancel_thread = threading.Thread(target=check_cancel_loop)
         cancel_thread.daemon = True
         cancel_thread.start()
-        
-        # Use the persistent audio source
-        logger.info("Listening...")
-        
+                
         # Play a "start listening" beep - higher pitch
         play_beep(frequency=1200, duration=0.3, volume=0.3)
+        logger.info("Listening for speech... (Press button/Enter to cancel)")
         
         try:
             logger.debug(f"Energy level: {recognizer.energy_threshold}")
@@ -402,13 +405,25 @@ def record_and_transcribe():
             
             # Check if cancel was requested during recording
             if cancel_recording or recognizer.should_cancel:
+                blink_led_running = False
+                if blink_led_thread:
+                    blink_led_thread.join(timeout=1)
+                    logger.info("Blink LED thread completed")
                 logger.info("\nRecording cancelled by user")
-                if IS_RPI:
-                    led_control.blink(LISTENING_LED, LED_RED, 1)
+                led_control.blink(LISTENING_LED, LED_RED, 1)
                 # Set a longer cooldown after cancellation
                 last_cancel_time = time.time() + 1.0  # Add extra cooldown time
                 return
             
+            blink_led_running = False
+            if blink_led_thread:
+                blink_led_thread.join(timeout=1)
+                logger.info("Blink LED thread completed")
+
+            blink_led_running = True
+            blink_led_thread = threading.Thread(target=blink_led, args=(LISTENING_LED, LED_BLUE))
+            blink_led_thread.daemon = True
+            blink_led_thread.start()
             # Play an "end listening" beep - lower pitch
             play_beep(frequency=800, duration=0.3, volume=0.3)
             
@@ -417,12 +432,19 @@ def record_and_transcribe():
             try:
                 text = recognizer.recognize_google(audio)
                 logger.info(f"Recognized: {text}")
-
+                # Stop the blinking LED
+                logger.info("Stopping blink LED...")
+                blink_led_running = False
+                if blink_led_thread:
+                    blink_led_thread.join(timeout=1)
+                    logger.info("Blink LED thread completed")
+                
                 # handle prompt cases
                 draw_prompt = p2s.handle_prompt_cases(text, speak_text, speak_text_and_cleanup, IS_RPI)
 
                 if draw_prompt:
                     logger.info(f"Extracted drawing prompt: {draw_prompt}")
+                    speak_text(f"I heard: {draw_prompt}")
                     pattern_path = os.path.join(PATTERNS_DIR, f"{draw_prompt.replace(' ', '_')}.thr")
                     theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
                     theta_rho_files = p2s.list_theta_rho_files()
@@ -443,17 +465,30 @@ def record_and_transcribe():
                                 error_message = runResponse['detail'].split(':')[1]
                             speak_text(f"Sorry, I couldn't weave the dunes. {error_message}")
                     else:
-                        speak_text(f"I'll generate {draw_prompt}")
-                        logger.info(f"Generating image for: {draw_prompt}")
+                        speak_text(f"Generating: {draw_prompt}")
+                        logger.info(f"Generating image for: {draw_prompt}")                        
                         
-                        if IS_RPI:
-                            led_control.set_color(LISTENING_LED, LED_ORANGE)
+                        blink_led_running = True
+                        blink_led_thread = threading.Thread(target=blink_led, args=(LISTENING_LED, LED_ORANGE))
+                        blink_led_thread.daemon = True
+                        blink_led_thread.start()
+
                         # Generate image using Gemini
                         image = p2s.generate_image_with_gemini(draw_prompt)
                         
                         if image:
                             # Convert image to sand pattern
                             try:
+                                blink_led_running = False
+                                if blink_led_thread:
+                                    blink_led_thread.join(timeout=1)
+                                    logger.info("Blink LED thread completed")
+                                
+                                blink_led_running = True
+                                blink_led_thread = threading.Thread(target=blink_led, args=(LISTENING_LED, LED_YELLOW))
+                                blink_led_thread.daemon = True
+                                blink_led_thread.start()
+
                                 result = p2s.convert_image_to_sand(image)
                                 
                                 # Save the pattern                                    
@@ -463,86 +498,127 @@ def record_and_transcribe():
                                 logger.info(f"Sand pattern saved to: {pattern_path}")
                                 logger.info(f"Number of points in pattern: {result['point_count']}")
                                 
-                                if IS_RPI:
-                                    led_control.blink(LISTENING_LED, LED_GREEN, 2)
+                                blink_led_running = False
+                                if blink_led_thread:
+                                    blink_led_thread.join(timeout=1)
+                                    logger.info("Blink LED thread completed")
+
+                                blink_led_running = True
+                                blink_led_thread = threading.Thread(target=blink_led, args=(LISTENING_LED, LED_GREEN))
+                                blink_led_thread.daemon = True
+                                blink_led_thread.start()
                                 
                                 uploadResponse = p2s.upload_theta_rho(pattern_path)
                                 if "success" in uploadResponse and uploadResponse["success"]:
                                     theta_rho_file = os.path.join("custom_patterns", os.path.basename(pattern_path)).replace('\\', '/')
                                     runResponse = p2s.run_theta_rho(theta_rho_file)
                                     if "success" in runResponse and runResponse["success"]:
+                                        blink_led_running = False
+                                        if blink_led_thread:
+                                            blink_led_thread.join(timeout=1)
+                                            logger.info("Blink LED thread completed")
                                         speak_text(f"Weaving the dunes for: {draw_prompt}")
                                     else:
+                                        blink_led_running = False
+                                        if blink_led_thread:
+                                            blink_led_thread.join(timeout=1)
+                                            logger.info("Blink LED thread completed")
                                         logger.error(f"Error running theta_rho: {runResponse['detail']}")
                                         error_message = runResponse['detail']
                                         if runResponse['detail'].startswith(r'\d+:'):
                                             error_code = runResponse['detail'].split(':')[0]
                                             error_message = runResponse['detail'].split(':')[1]
+                                        led_control.blink(LISTENING_LED, LED_RED, 2)
                                         speak_text(f"Sorry, I couldn't weave the dunes. {error_message}")
                                 else:
+                                    blink_led_running = False
+                                    if blink_led_thread:
+                                        blink_led_thread.join(timeout=1)
+                                        logger.info("Blink LED thread completed")
                                     logger.error(f"Error uploading theta_rho: {uploadResponse['detail']}")
                                     error_message = uploadResponse['detail']
                                     if uploadResponse['detail'].startswith(r'\d+:'):
                                         error_code = uploadResponse['detail'].split(':')[0]
                                         error_message = uploadResponse['detail'].split(':')[1]
+                                    led_control.blink(LISTENING_LED, LED_RED, 2)
                                     speak_text(f"Sorry, I couldn't upload the pattern to DuneWeaver. {error_message}")
 
                             except Exception as e:
+                                blink_led_running = False
+                                if blink_led_thread:
+                                    blink_led_thread.join(timeout=1)
+                                    logger.info("Blink LED thread completed")
                                 logger.error(f"Error converting image to sand pattern: {e}")
-                                if IS_RPI:
-                                    led_control.blink(LISTENING_LED, LED_RED, 2)
+                                led_control.blink(LISTENING_LED, LED_RED, 2)
                                 speak_text("Sorry, I couldn't convert the image to a sand pattern.")
                             
                         else:
-                            if IS_RPI:
-                                led_control.blink(LISTENING_LED, LED_RED, 2)
+                            blink_led_running = False
+                            if blink_led_thread:
+                                blink_led_thread.join(timeout=1)
+                                logger.info("Blink LED thread completed")
+                            led_control.blink(LISTENING_LED, LED_RED, 2)
                             speak_text("Sorry, I couldn't generate the image.")
 
             except sr.UnknownValueError:
+                blink_led_running = False
+                if blink_led_thread:
+                    blink_led_thread.join(timeout=1)
+                    logger.info("Blink LED thread completed")
                 logger.warning("Could not understand the audio")
                 # Play an "error" beep - low pitch
                 play_beep(frequency=300, duration=0.2, volume=0.3)
                 
-                if IS_RPI:
-                    led_control.blink(LISTENING_LED, LED_RED, 2)
+                led_control.blink(LISTENING_LED, LED_RED, 2)
                 speak_text("Sorry, I couldn't understand that.")
                 
             except sr.RequestError as e:
+                blink_led_running = False
+                if blink_led_thread:
+                    blink_led_thread.join(timeout=1)
+                    logger.info("Blink LED thread completed")
                 logger.error(f"Could not request results from Google Speech Recognition service; {e}")
                 # Play an "error" beep - low pitch
                 play_beep(frequency=300, duration=0.2, volume=0.3)
                 
-                if IS_RPI:
-                    led_control.blink(LISTENING_LED, LED_RED, 2)
+                led_control.blink(LISTENING_LED, LED_RED, 2)
                 speak_text("Sorry, there was an error with speech recognition.")
 
         except sr.WaitTimeoutError:
+            blink_led_running = False
+            if blink_led_thread:
+                blink_led_thread.join(timeout=1)
+                logger.info("Blink LED thread completed")
             logger.warning("No speech detected within timeout period")
             # Play a "timeout" beep - two short low beeps
             play_beep(frequency=500, duration=0.3, volume=0.3)
             time.sleep(0.1)
             play_beep(frequency=500, duration=0.3, volume=0.3)
             
-            if IS_RPI:
-                led_control.blink(LISTENING_LED, LED_ORANGE, 1)
+            led_control.blink(LISTENING_LED, LED_ORANGE, 1)
             speak_text("I didn't hear anything. Please try again.")
         
         except Exception as e:
+            blink_led_running = False
+            if blink_led_thread:
+                blink_led_thread.join(timeout=1)
+                logger.info("Blink LED thread completed")
             if not cancel_recording:
                 logger.error(f"Error during speech recognition: {e}")
                 # Play an "error" beep - low pitch
                 play_beep(frequency=300, duration=0.2, volume=0.3)
                 
-                if IS_RPI:
-                    led_control.blink(LISTENING_LED, LED_RED, 2)
+                led_control.blink(LISTENING_LED, LED_RED, 2)
                 speak_text("Sorry, an error occurred.")
     
     finally:
+        blink_led_running = False
+        if blink_led_thread:
+            blink_led_thread.join(timeout=1)
         # Ensure cancel flag is reset
         is_recording = False
         cancel_recording = False
-        if IS_RPI:
-            led_control.set_color(LISTENING_LED, LED_OFF)
+        led_control.set_color(LISTENING_LED, LED_OFF)
         
         # Set a cooldown period to prevent immediate restart
         last_cancel_time = time.time()
@@ -569,17 +645,17 @@ def cleanup():
             except Exception as e:
                 logger.error(f"Error closing microphone stream: {e}")
         
+        # Turn off all LEDs first
+        for i in range(NUM_LEDS):
+            led_control.set_color(i, LED_OFF)
+        
+        # Cleanup LED resources
+        led_control.turn_off()
+        
+        # Give a small delay to ensure LED operations complete
+        time.sleep(0.2)
+
         if IS_RPI:
-            # Turn off all LEDs first
-            for i in range(NUM_LEDS):
-                led_control.set_color(i, LED_OFF)
-            
-            # Cleanup LED resources
-            led_control.turn_off()
-            
-            # Give a small delay to ensure LED operations complete
-            time.sleep(0.2)
-            
             # Explicitly set GPIO mode before cleanup to avoid the error
             if not GPIO.getmode():
                 GPIO.setmode(GPIO.BCM)
@@ -600,6 +676,20 @@ def signal_handler(sig, frame):
     # Exit immediately to prevent further automatic cleanup
     import os
     os._exit(0)
+
+def blink_led(led_num: int, rgb: Tuple[int, int, int]):
+    global blink_led_running
+    logger.info(f"Blinking LED {led_num} with color: {rgb}")
+    try:
+        while blink_led_running:
+            led_control.set_color(led_num, rgb)
+            time.sleep(0.3)
+            led_control.set_color(led_num, LED_OFF)
+            time.sleep(0.3)
+        led_control.set_color(led_num, LED_OFF)
+        logger.info("LED blinking completed")
+    except Exception as e:
+        logger.error(f"Error blinking LED: {e}")
 
 def startup_animation():
     """Run a continuous LED animation sequence until startup is complete."""
@@ -652,11 +742,11 @@ def main():
             button_state = "PRESSED" if GPIO.input(BUTTON_PIN) == GPIO.LOW else "RELEASED"
             logger.info(f"Initial button state: {button_state}")
             
-            # Start the animation
-            startup_animation_running = True
-            startup_thread = threading.Thread(target=startup_animation)
-            startup_thread.daemon = True
-            startup_thread.start()
+        # Start the animation
+        startup_animation_running = True
+        startup_thread = threading.Thread(target=startup_animation)
+        startup_thread.daemon = True
+        startup_thread.start()
                     
         # Initialize microphone and create a persistent audio source
         logger.info("Initializing microphone and creating audio stream...")
@@ -674,9 +764,8 @@ def main():
             startup_thread.join(timeout=1)
             logger.info("Startup animation thread completed")
         
+        led_control.set_color(POWER_LED, LED_GREEN)
         if IS_RPI:
-            logger.info("Setting POWER_LED to GREEN to indicate ready state")
-            led_control.set_color(POWER_LED, LED_GREEN)
             logger.info(f"Running in RPI mode")
             
             # Wait for any currently pressed button to be released before starting
