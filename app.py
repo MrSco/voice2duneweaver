@@ -134,8 +134,10 @@ def speak_text(text):
     try:
         # if we're running on a Raspberry Pi, we need to use espeak
         if IS_RPI:
-            os.system(f"espeak -ven-us+f3 -s150 -p50 '{text}'")
+            print("using espeak")
+            os.system(f"espeak-ng -ven-us+f3 -s150 -p50 '{text}'")
         else:
+            print("using pyttsx3")
             time.sleep(0.1)
             tts_engine.say(text)
             tts_engine.runAndWait()
